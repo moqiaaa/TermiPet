@@ -120,6 +120,18 @@ TermiPet 是本地運行的 macOS 應用，**沒有自建雲端中轉伺服器**
 | 線上模型 | 可選，需要 OpenAI、Google Gemini 或相容服務的 API Key |
 | 系統權限 | 終端預覽和自動輸入需要 macOS 輔助使用權限 |
 
+## 下載與安裝
+
+普通使用者不需要自己編譯，可以直接下載已打包好的 macOS App：
+
+1. 打開 [TermiPet Releases](https://github.com/bleeeet/TermiPet/releases)。
+2. 下載最新版本中的 `TermiPet-v0.1-macOS.zip`。
+3. 解壓後得到 `TermiPet.app`。
+4. 將 `TermiPet.app` 拖到「應用程式」資料夾，或直接雙擊執行。
+5. 首次開啟時，如果 macOS 提示來自未驗證開發者，可以到「系統設定 -> 隱私權與安全性」允許開啟。
+
+TermiPet 會出現在 macOS 選單列中，預設不會顯示在 Dock。終端預覽、快捷指令輸入和資料夾 `cd` 輸入需要 macOS 輔助使用權限。
+
 ## 從原始碼建置
 
 ```zsh

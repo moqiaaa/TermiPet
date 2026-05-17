@@ -120,6 +120,18 @@ TermiPet은 Mac에서 로컬로 실행되며 **자체 클라우드 중계 서버
 | 온라인 모델 | 선택 사항, OpenAI, Google Gemini 또는 호환 API 키 필요 |
 | 시스템 권한 | 터미널 미리보기와 빠른 입력에는 macOS 손쉬운 사용 권한이 필요 |
 
+## 다운로드 및 설치
+
+일반 사용자는 직접 빌드하지 않아도 됩니다. 패키징된 macOS App을 바로 다운로드할 수 있습니다.
+
+1. [TermiPet Releases](https://github.com/bleeeet/TermiPet/releases)를 엽니다.
+2. 최신 릴리스에서 `TermiPet-v0.1-macOS.zip`을 다운로드합니다.
+3. 압축을 풀어 `TermiPet.app`을 얻습니다.
+4. `TermiPet.app`을 Applications 폴더로 옮기거나 바로 더블 클릭해 실행합니다.
+5. 처음 실행할 때 macOS가 차단하면, 시스템 설정 -> 개인정보 보호 및 보안에서 실행을 허용하세요.
+
+TermiPet은 macOS 메뉴 막대에 표시되며 기본적으로 Dock에는 나타나지 않습니다. 터미널 미리보기, 빠른 명령 입력, 폴더 `cd` 입력에는 macOS 손쉬운 사용 권한이 필요합니다.
+
 ## 소스에서 빌드
 
 ```zsh

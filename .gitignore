@@ -13,6 +13,7 @@ Source/.build/
 
 # 应用构建产物
 App/
+dist/
 
 # 临时文件
 *.tmp

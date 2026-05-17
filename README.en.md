@@ -123,6 +123,18 @@ In short: TermiPet is a **local plugin and desktop assistant**. API requests go 
 | Online models | Optional, requires OpenAI, Google Gemini, or compatible API credentials |
 | Permissions | Terminal preview and quick input require macOS Accessibility permission |
 
+## Download and Install
+
+Most users can download the packaged macOS app without building from source:
+
+1. Open [TermiPet Releases](https://github.com/bleeeet/TermiPet/releases).
+2. Download `TermiPet-v0.1-macOS.zip` from the latest release.
+3. Unzip it to get `TermiPet.app`.
+4. Move `TermiPet.app` to Applications, or double-click it directly.
+5. If macOS blocks the first launch, open System Settings -> Privacy & Security and allow TermiPet to run.
+
+TermiPet appears in the macOS menu bar and does not show in the Dock by default. Terminal preview, quick command input, and folder `cd` input require macOS Accessibility permission.
+
 ## Build from Source
 
 ```zsh
