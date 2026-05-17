@@ -130,6 +130,10 @@ zsh Scripts/build-plugin.sh
 
 腳本會執行測試、編譯 App、複製資源和預設寵物包、簽名本地版本，並啟動 `App/TermiPet.app`。
 
+## 致謝
+
+TermiPet 的使用場景受到 **Claude Code**、**Codex**、**Google Gemini**、**GitHub Copilot** 和 **Ollama** 等 AI 編程與模型生態啟發，也圍繞相關本地工作流、狀態顯示、用量讀取和寵物對話體驗做了適配。它們不是 TermiPet 的官方貢獻者或背書方。
+
 ## 授權
 
 TermiPet 使用 [Apache License 2.0](LICENSE) 授權。

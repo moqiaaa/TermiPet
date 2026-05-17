@@ -162,6 +162,10 @@ spritesheet.webp
 
 Imported pets are copied into TermiPet's Application Support directory. The app is compatible with Codex-style pet packages.
 
+## Acknowledgements
+
+TermiPet is shaped by and built around practical workflows involving **Claude Code**, **Codex**, **Google Gemini**, **GitHub Copilot**, and **Ollama**. They are not official contributors to or endorsers of TermiPet, but the app integrates with related local workflows, status displays, usage reading, and pet chat experiences.
+
 ## License
 
 TermiPet is licensed under the [Apache License 2.0](LICENSE).

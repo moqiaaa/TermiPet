@@ -130,6 +130,10 @@ zsh Scripts/build-plugin.sh
 
 스크립트는 테스트 실행, 앱 빌드, 리소스와 기본 펫 패키지 복사, 로컬 서명, `App/TermiPet.app` 실행을 수행합니다.
 
+## 감사의 말
+
+TermiPet의 사용 경험은 **Claude Code**, **Codex**, **Google Gemini**, **GitHub Copilot**, **Ollama** 같은 AI 코딩 및 모델 생태계와 밀접하게 연결되어 있습니다. 이들은 TermiPet의 공식 기여자나 보증 주체는 아니지만, TermiPet은 관련 로컬 워크플로, 상태 표시, 사용량 읽기, 펫 채팅 경험에 맞춰 설계되었습니다.
+
 ## 라이선스
 
 TermiPet은 [Apache License 2.0](LICENSE)에 따라 배포됩니다.
