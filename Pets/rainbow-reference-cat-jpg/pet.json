@@ -1,0 +1,7 @@
+{
+  "id": "rainbow-reference-cat-jpg",
+  "displayName": "Rainbow Reference Cat",
+  "description": "A pastel rainbow pixel cat rebuilt from the supplied green-background action-frame sheet.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "animal"
+}

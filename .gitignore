@@ -1,0 +1,24 @@
+# Swift 构建产物
+.build/
+Source/.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# 应用构建产物
+App/
+
+# 临时文件
+*.tmp
+*.log
+
+# 本地协作和 Agent 配置
+.claude/
+AGENTS.md
+CLAUDE.md
