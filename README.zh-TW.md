@@ -26,6 +26,18 @@
   <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue">
 </p>
 
+<p align="center">
+  <a href="#下載與安裝">下載與安裝</a>
+  ·
+  <a href="#主要功能">主要功能</a>
+  ·
+  <a href="#隱私與資料">隱私</a>
+  ·
+  <a href="#從原始碼建置">建置</a>
+  ·
+  <a href="#授權">授權</a>
+</p>
+
 TermiPet 是一個懸浮在 macOS 桌面上的寵物助手。它面向終端使用者和 AI 編程工具使用者，幫你**查看終端狀態**、**發送常用指令**、**觀察 Claude Code / Codex / GitHub Copilot 用量**，並支援透過本地模型或線上 API 和寵物聊天。
 
 <p align="center">

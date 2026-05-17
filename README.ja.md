@@ -26,6 +26,18 @@
   <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue">
 </p>
 
+<p align="center">
+  <a href="#ダウンロードとインストール">ダウンロード</a>
+  ·
+  <a href="#主な機能">機能</a>
+  ·
+  <a href="#プライバシーとデータ">プライバシー</a>
+  ·
+  <a href="#ソースからビルド">ビルド</a>
+  ·
+  <a href="#ライセンス">ライセンス</a>
+</p>
+
 TermiPet は macOS のデスクトップに浮かぶペット型アシスタントです。ターミナルユーザーと AI コーディングツールの利用者向けに、**ターミナル状態の確認**、**よく使うコマンドの送信**、**Claude Code / Codex / GitHub Copilot の利用状況表示**、そしてローカルモデルまたはオンライン API を使った**ペットとのチャット**を提供します。
 
 <p align="center">

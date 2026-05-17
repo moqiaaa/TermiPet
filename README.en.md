@@ -26,6 +26,18 @@
   <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue">
 </p>
 
+<p align="center">
+  <a href="#download-and-install">Download</a>
+  ·
+  <a href="#highlights">Highlights</a>
+  ·
+  <a href="#privacy-and-data">Privacy</a>
+  ·
+  <a href="#build-from-source">Build</a>
+  ·
+  <a href="#license">License</a>
+</p>
+
 TermiPet is a lightweight macOS menu bar app that keeps a pixel pet beside your terminal. It helps you **view terminal and AI agent status**, **send frequent commands**, **check Claude Code / Codex / GitHub Copilot usage**, and **chat with your pet** through local or online models.
 
 <p align="center">

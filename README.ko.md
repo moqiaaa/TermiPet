@@ -26,6 +26,18 @@
   <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue">
 </p>
 
+<p align="center">
+  <a href="#다운로드-및-설치">다운로드</a>
+  ·
+  <a href="#주요-기능">주요 기능</a>
+  ·
+  <a href="#개인정보와-데이터">개인정보</a>
+  ·
+  <a href="#소스에서-빌드">빌드</a>
+  ·
+  <a href="#라이선스">라이선스</a>
+</p>
+
 TermiPet은 macOS 데스크톱 위에 떠 있는 펫 어시스턴트입니다. 터미널 사용자와 AI 코딩 도구 사용자를 위해 **터미널 상태 확인**, **자주 쓰는 명령 입력**, **Claude Code / Codex / GitHub Copilot 사용량 확인**, 그리고 로컬 모델 또는 온라인 API를 통한 **펫 채팅**을 제공합니다.
 
 <p align="center">
