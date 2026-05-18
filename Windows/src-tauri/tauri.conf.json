@@ -1,0 +1,71 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-plugin-list/refs/heads/main/v2/schemas/tauri.conf.json",
+  "productName": "TermiPet",
+  "version": "1.0.0",
+  "identifier": "com.termipet.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "TermiPet",
+        "width": 400,
+        "height": 760,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "x": 100,
+        "y": 100
+      },
+      {
+        "label": "settings",
+        "title": "TermiPet Settings",
+        "url": "/settings",
+        "width": 860,
+        "height": 580,
+        "resizable": false,
+        "visible": false,
+        "center": true
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "tooltip": "TermiPet"
+    },
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "fs": {
+      "requireLiteralLeadingDot": false
+    }
+  }
+}
