@@ -89,6 +89,8 @@ TermiPet は Claude Code などの AI コーディングツールの状態をフ
 
 TermiPet には複数のペットが内蔵されています。デフォルトの `Terminal Cat` はマスコットで、待機、思考、実行、注意、エラー、睡眠、お祝いなどの状態に合わせて動きます。
 
+さらに [Petdex コミュニティ](https://petdex.crafter.run/zh) から、Petdex / Codex 互換のペットパックを入手できます。
+
 <p align="center">
   <img src="docs/images/termipet-pet-library.png" width="860" alt="TermiPet pet selection">
 </p>

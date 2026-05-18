@@ -89,6 +89,8 @@ TermiPet은 Claude Code 같은 AI 코딩 도구의 상태를 플로팅 카드로
 
 TermiPet에는 여러 펫이 내장되어 있습니다. 기본 주인공은 `Terminal Cat`이며, 대기, 생각, 실행, 알림, 오류, 수면, 축하 같은 상태에 맞춰 움직입니다.
 
+[Petdex 커뮤니티](https://petdex.crafter.run/zh)에서 더 많은 Petdex / Codex 호환 펫 패키지도 받을 수 있습니다.
+
 <p align="center">
   <img src="docs/images/termipet-pet-library.png" width="860" alt="TermiPet pet selection">
 </p>

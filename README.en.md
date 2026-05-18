@@ -89,6 +89,8 @@ The command panel keeps frequent Claude Code commands close at hand, including `
 
 TermiPet includes multiple pets. `Terminal Cat` is the default mascot, and each pet can react with idle, thinking, running, reminder, error, sleep, and celebration animations.
 
+You can also find more Petdex / Codex-compatible pet packs from the [Petdex community](https://petdex.crafter.run/zh).
+
 <p align="center">
   <img src="docs/images/termipet-pet-library.png" width="860" alt="TermiPet pet selection">
 </p>

@@ -89,6 +89,8 @@ TermiPet 會把 Claude Code 等 AI 編程工具的狀態整理成懸浮卡片，
 
 TermiPet 內建多款寵物，預設主角是 `Terminal Cat`。不同寵物會跟隨待機、思考、提醒、錯誤、睡覺和慶祝等狀態播放對應動作。
 
+你也可以到 [Petdex 中文社群](https://petdex.crafter.run/zh) 取得更多 Petdex / Codex 相容的寵物資源包。
+
 <p align="center">
   <img src="docs/images/termipet-pet-library.png" width="860" alt="TermiPet pet selection">
 </p>
