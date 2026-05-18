@@ -1,0 +1,6 @@
+{
+  "id": "rainbow-terminal-cat",
+  "displayName": "Rainbow Terminal Cat",
+  "description": "A compact rainbow-gradient pixel cat curled beside a tiny terminal.",
+  "spritesheetPath": "spritesheet.webp"
+}

@@ -1,0 +1,6 @@
+{
+  "id": "retro-rainbow-cat",
+  "displayName": "Retro Rainbow Cat",
+  "description": "A no-feet rainbow pixel pet that hops around and works at a tiny terminal.",
+  "spritesheetPath": "spritesheet.png"
+}
