@@ -154,6 +154,10 @@ zsh Scripts/build-plugin.sh
 
 このスクリプトはテスト、ビルド、リソースとペットパッケージのコピー、署名、`App/TermiPet.app` の起動を行います。
 
+## Petdex 互換性
+
+TermiPet は **Petdex / Codex 互換のペットパック**をインポートできます。「設定 -> ペット」で `pet.json` と `spritesheet.webp` を含むペットフォルダを選択すると、TermiPet はそれをローカルの `ImportedPets` ディレクトリへコピーし、デスクトップペットとして使用します。
+
 ## 謝辞
 
 TermiPet の利用体験は、**Claude Code**、**Codex**、**Google Gemini**、**GitHub Copilot**、**Ollama** などの AI コーディングおよびモデルエコシステムに強く関係しています。これらは TermiPet の公式コントリビューターや推奨者ではありませんが、TermiPet は関連するローカルワークフロー、状態表示、利用状況の読み取り、ペットチャット体験に合わせて設計されています。

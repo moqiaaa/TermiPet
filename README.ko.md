@@ -154,6 +154,10 @@ zsh Scripts/build-plugin.sh
 
 스크립트는 테스트 실행, 앱 빌드, 리소스와 기본 펫 패키지 복사, 로컬 서명, `App/TermiPet.app` 실행을 수행합니다.
 
+## Petdex 호환성
+
+TermiPet은 **Petdex / Codex 호환 펫 패키지**를 가져올 수 있습니다. 설정 -> 펫에서 `pet.json`과 `spritesheet.webp`가 들어 있는 펫 폴더를 선택하면, TermiPet은 이를 로컬 `ImportedPets` 디렉터리로 복사하고 데스크톱 펫으로 사용합니다.
+
 ## 감사의 말
 
 TermiPet의 사용 경험은 **Claude Code**, **Codex**, **Google Gemini**, **GitHub Copilot**, **Ollama** 같은 AI 코딩 및 모델 생태계와 밀접하게 연결되어 있습니다. 이들은 TermiPet의 공식 기여자나 보증 주체는 아니지만, TermiPet은 관련 로컬 워크플로, 상태 표시, 사용량 읽기, 펫 채팅 경험에 맞춰 설계되었습니다.

@@ -345,6 +345,10 @@ API Key 会保存在 macOS 钥匙串中；Base URL、模型名等非敏感配置
 
 TermiPet 内置多款宠物。默认主角是 `Terminal Cat`，它是一只陪在终端旁边的小猫，也是这个软件的吉祥物。内置宠物里还包括偏像素风的猫、巫师克劳德、Mochi 等角色；你也可以导入自己的宠物资源包，与 Codex 宠物文件兼容。
 
+### Petdex 兼容性
+
+TermiPet 可以导入 **Petdex / Codex 兼容的宠物包**：在「设置 -> 宠物」中选择一个包含 `pet.json` 和 `spritesheet.webp` 的宠物文件夹，TermiPet 会把它复制到本地 `ImportedPets` 目录并作为桌面宠物使用。
+
 宠物资源包是一个文件夹，至少需要包含：
 
 ```text

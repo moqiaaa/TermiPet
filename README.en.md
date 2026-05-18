@@ -184,6 +184,10 @@ pet.json
 spritesheet.webp
 ```
 
+### Petdex Compatibility
+
+TermiPet can import **Petdex / Codex-compatible pet packs**. In Settings -> Pets, choose a pet folder that contains `pet.json` and `spritesheet.webp`; TermiPet copies it into the local `ImportedPets` directory and uses it as a desktop companion.
+
 Imported pets are copied into TermiPet's Application Support directory. The app is compatible with Codex-style pet packages.
 
 ## Acknowledgements
