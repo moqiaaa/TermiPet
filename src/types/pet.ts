@@ -82,7 +82,6 @@ export function getValidFrameCount(
 // --- New types for the full app ---
 
 export type AgentState = 'idle' | 'working' | 'waiting' | 'compacting' | 'stopped' | 'error'
-export type PomodoroPhase = 'idle' | 'work' | 'break'
 
 export interface ClaudeState {
   state: AgentState
@@ -114,12 +113,6 @@ export interface ChatMessage {
   timestamp: number
 }
 
-export interface PomodoroState {
-  phase: PomodoroPhase
-  remaining: number
-  isRunning: boolean
-}
-
 export interface UsageQuota {
   name: string
   used: number
@@ -138,6 +131,85 @@ export interface Settings {
   chatProvider: string
   ollamaModel: string
   apiKeys: Record<string, string>
+}
+
+// Todo & Project
+export interface Todo {
+  id: string
+  title: string
+  done: boolean
+  projectId: string
+  createdAt: number
+  dueDate?: string
+  note?: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  color: string
+  createdAt: number
+}
+
+// Diary
+export interface DiaryCategory {
+  id: number
+  parent_id: number | null
+  name: string
+  description: string | null
+  sort_order: number
+}
+
+export interface Diary {
+  id: number
+  category_id: number | null
+  title: string
+  content: string
+  diary_date: string | null
+  tags: string | null
+  created_at: string
+  updated_at: string
+  category_name: string | null
+}
+
+// Stock
+export interface StockTrade {
+  id: number
+  trade_date: string | null
+  stock_code: string
+  stock_name: string
+  direction: number
+  price: number
+  quantity: number
+  amount: number | null
+  reason: string | null
+  review: string | null
+  correct: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StockPosition {
+  id: number
+  stock_code: string
+  stock_name: string
+  quantity: number
+  cost_price: number
+  notes: string | null
+  buy_point: string | null
+  sell_point: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StockIndicator {
+  id: number
+  stock_code: string
+  name: string
+  value: string | null
+  remark: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface ElectronAPI {
@@ -185,11 +257,44 @@ export interface ElectronAPI {
   // Usage
   getUsageQuotas: () => Promise<UsageQuota[]>
 
-  // Pomodoro
-  startPomodoro: () => Promise<void>
-  pausePomodoro: () => Promise<void>
-  resetPomodoro: () => Promise<void>
-  onPomodoroTick: (callback: (state: PomodoroState) => void) => () => void
+  // Todo
+  getTodos: () => Promise<Todo[]>
+  saveTodo: (todo: Todo) => Promise<Todo[] | null>
+  deleteTodo: (id: string) => Promise<Todo[] | null>
+  getProjects: () => Promise<Project[]>
+  saveProject: (project: Project) => Promise<Project[] | null>
+  deleteProject: (id: string) => Promise<{ projects: Project[]; todos: Todo[] } | null>
+
+  // Diary
+  getDiaryCategories: () => Promise<DiaryCategory[]>
+  getDiaries: (params: { categoryId?: number; keyword?: string; limit?: number; offset?: number }) => Promise<Diary[]>
+  getDiaryById: (id: number) => Promise<Diary | null>
+  getDiaryCount: (categoryId?: number) => Promise<number>
+  saveDiary: (diary: Partial<Diary>) => Promise<Diary | null>
+  deleteDiary: (id: number) => Promise<boolean>
+
+  // Stock
+  getTrades: (params: { direction?: number; keyword?: string; dateRange?: string; limit?: number; offset?: number }) => Promise<StockTrade[]>
+  getTradeById: (id: number) => Promise<StockTrade | null>
+  getTradeCount: (params: { direction?: number; dateRange?: string }) => Promise<number>
+  saveTrade: (trade: Partial<StockTrade>) => Promise<StockTrade | null>
+  deleteTrade: (id: number) => Promise<boolean>
+  getPositions: (keyword?: string) => Promise<StockPosition[]>
+  getPositionById: (id: number) => Promise<StockPosition | null>
+  savePosition: (pos: Partial<StockPosition>) => Promise<StockPosition | null>
+  deletePosition: (id: number) => Promise<boolean>
+  getIndicators: (stockCode: string) => Promise<StockIndicator[]>
+  saveIndicator: (ind: Partial<StockIndicator>) => Promise<StockIndicator | null>
+  deleteIndicator: (id: number) => Promise<boolean>
+
+  // Sub windows
+  openTodoWindow: () => Promise<void>
+  openDiaryWindow: () => Promise<void>
+  openStockWindow: () => Promise<void>
+
+  // Store (generic)
+  storeGet: (key: string) => Promise<unknown>
+  storeSet: (key: string, value: unknown) => Promise<boolean>
 
   // Misc
   onPetChanged: (callback: (petId: string) => void) => () => void

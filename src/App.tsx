@@ -7,14 +7,15 @@ import { Toolbar } from './components/Toolbar'
 import { CommandPanel } from './components/CommandPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { ApprovalPrompt } from './components/ApprovalPrompt'
-import { PomodoroDisplay } from './components/PomodoroDisplay'
 import { QuotaCards } from './components/QuotaCard'
 import { SettingsWindow } from './components/SettingsWindow'
+import { TodoWindow } from './components/TodoWindow'
+import { DiaryWindow } from './components/DiaryWindow'
+import { StockWindow } from './components/StockWindow'
 import type {
   PetMetadata,
   ClaudeState,
   ApprovalPrompt as ApprovalPromptType,
-  PomodoroState,
   UsageQuota,
   AgentState,
 } from './types/pet'
@@ -42,7 +43,6 @@ function PetWindow() {
   const [hovered, setHovered] = useState(false)
   const [commandsOpen, setCommandsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
-  const [pomodoroVisible, setPomodoroVisible] = useState(false)
   const [quotaVisible, setQuotaVisible] = useState(false)
 
   // --- Claude state ---
@@ -54,13 +54,6 @@ function PetWindow() {
   const [autoAction, setAutoAction] = useState(0)
   const [previewAction, setPreviewAction] = useState<number | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // --- Pomodoro ---
-  const [pomodoroState, setPomodoroState] = useState<PomodoroState>({
-    phase: 'idle',
-    remaining: 0,
-    isRunning: false,
-  })
 
   // --- Quotas ---
   const [quotas, setQuotas] = useState<UsageQuota[]>([])
@@ -121,17 +114,11 @@ function PetWindow() {
       }
     })
 
-    // Pomodoro ticks
-    const cleanupPomodoro = api.onPomodoroTick?.((state) => {
-      setPomodoroState(state)
-    })
-
     return () => {
       cleanupPet()
       cleanupClaude?.()
       cleanupApproval?.()
       cleanupApp?.()
-      cleanupPomodoro?.()
     }
   }, [])
 
@@ -249,18 +236,14 @@ function PetWindow() {
         <Toolbar
           onToggleCommands={() => setCommandsOpen((v) => !v)}
           onToggleChat={() => setChatOpen((v) => !v)}
-          onTogglePomodoro={() => setPomodoroVisible((v) => !v)}
           commandsOpen={commandsOpen}
           chatOpen={chatOpen}
-          pomodoroOpen={pomodoroVisible}
         />
       )}
 
       {/* Expandable panels */}
       <CommandPanel visible={commandsOpen} />
       <ChatPanel visible={chatOpen} />
-      <PomodoroDisplay state={pomodoroState} visible={pomodoroVisible} />
-
       {/* Approval overlay */}
       <ApprovalPrompt prompt={approval} onResolve={handleResolveApproval} />
 
@@ -286,9 +269,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash)
   }, [])
 
-  if (route === '#/settings') {
-    return <SettingsWindow />
-  }
+  if (route === '#/settings') return <SettingsWindow />
+  if (route === '#/todo') return <TodoWindow />
+  if (route === '#/diary') return <DiaryWindow />
+  if (route === '#/stock') return <StockWindow />
 
   return <PetWindow />
 }

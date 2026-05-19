@@ -21,18 +21,24 @@ let tray = null
 let chatHistory = []
 let currentChatAbortController = null
 
-// Pomodoro state
-const WORK_DURATION = 25 * 60
-const BREAK_DURATION = 5 * 60
-let pomodoroState = { phase: 'idle', remaining: WORK_DURATION, isRunning: false }
-let pomodoroTimer = null
-
 // Process monitor
 let processMonitorTimer = null
 let lastActiveApp = null
 
 // Claude hook (loaded lazily after app ready)
 let claudeHook = null
+
+// qimo modules (loaded lazily after app ready)
+let store = null
+let todoLogic = null
+let diaryLogic = null
+let stockLogic = null
+let db = null
+
+// Sub-windows
+let todoWindow = null
+let diaryWindow = null
+let stockWindow = null
 
 // ---------------------------------------------------------------------------
 // Utility: paths
@@ -490,82 +496,6 @@ function stopProcessMonitor() {
 }
 
 // ---------------------------------------------------------------------------
-// Pomodoro timer
-// ---------------------------------------------------------------------------
-function sendPomodoroTick() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('pomodoro-tick', {
-      phase: pomodoroState.phase,
-      remaining: pomodoroState.remaining,
-      isRunning: pomodoroState.isRunning,
-    })
-  }
-}
-
-function playSystemSound() {
-  execFile('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-Command',
-    '[System.Media.SystemSounds]::Exclamation.Play()',
-  ], () => {})
-}
-
-function pomodoroTick() {
-  if (!pomodoroState.isRunning) return
-
-  pomodoroState.remaining -= 1
-
-  if (pomodoroState.remaining <= 0) {
-    playSystemSound()
-
-    if (pomodoroState.phase === 'work') {
-      pomodoroState.phase = 'break'
-      pomodoroState.remaining = BREAK_DURATION
-    } else {
-      // break finished -> idle
-      pomodoroState.phase = 'idle'
-      pomodoroState.remaining = WORK_DURATION
-      pomodoroState.isRunning = false
-      if (pomodoroTimer) {
-        clearInterval(pomodoroTimer)
-        pomodoroTimer = null
-      }
-    }
-  }
-
-  sendPomodoroTick()
-}
-
-function startPomodoro() {
-  if (pomodoroState.isRunning) return
-  if (pomodoroState.phase === 'idle') {
-    pomodoroState.phase = 'work'
-    pomodoroState.remaining = WORK_DURATION
-  }
-  pomodoroState.isRunning = true
-  if (pomodoroTimer) clearInterval(pomodoroTimer)
-  pomodoroTimer = setInterval(pomodoroTick, 1000)
-  sendPomodoroTick()
-}
-
-function pausePomodoro() {
-  pomodoroState.isRunning = false
-  if (pomodoroTimer) {
-    clearInterval(pomodoroTimer)
-    pomodoroTimer = null
-  }
-  sendPomodoroTick()
-}
-
-function resetPomodoro() {
-  pomodoroState = { phase: 'idle', remaining: WORK_DURATION, isRunning: false }
-  if (pomodoroTimer) {
-    clearInterval(pomodoroTimer)
-    pomodoroTimer = null
-  }
-  sendPomodoroTick()
-}
-
-// ---------------------------------------------------------------------------
 // Usage quota fetching
 // ---------------------------------------------------------------------------
 async function fetchClaudeQuota() {
@@ -784,6 +714,58 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => {
     settingsWindow = null
   })
+}
+
+function createSubWindow(hashRoute, width, height) {
+  const win = new BrowserWindow({
+    width,
+    height,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  win.setMenu(null)
+
+  if (isDev) {
+    win.loadURL(`http://localhost:5174#${hashRoute}`)
+  } else {
+    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
+      hash: hashRoute,
+    })
+  }
+
+  return win
+}
+
+function createTodoWindow() {
+  if (todoWindow && !todoWindow.isDestroyed()) {
+    todoWindow.focus()
+    return
+  }
+  todoWindow = createSubWindow('/todo', 680, 520)
+  todoWindow.on('closed', () => { todoWindow = null })
+}
+
+function createDiaryWindow() {
+  if (diaryWindow && !diaryWindow.isDestroyed()) {
+    diaryWindow.focus()
+    return
+  }
+  diaryWindow = createSubWindow('/diary', 800, 520)
+  diaryWindow.on('closed', () => { diaryWindow = null })
+}
+
+function createStockWindow() {
+  if (stockWindow && !stockWindow.isDestroyed()) {
+    stockWindow.focus()
+    return
+  }
+  stockWindow = createSubWindow('/stock', 800, 520)
+  stockWindow.on('closed', () => { stockWindow = null })
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,21 +1006,68 @@ function setupIPC() {
   // -- Quota --
   ipcMain.handle('get-usage-quotas', () => getUsageQuotas())
 
-  // -- Pomodoro --
-  ipcMain.handle('pomodoro-start', () => {
-    startPomodoro()
-    return true
+  // -- Todo (electron-store) --
+  ipcMain.handle('get-todos', () => store.get('todos'))
+  ipcMain.handle('save-todo', (_event, todo) => {
+    const todos = store.get('todos')
+    const result = todoLogic.saveTodo(todos, todo)
+    if (result) store.set('todos', result)
+    return result
+  })
+  ipcMain.handle('delete-todo', (_event, id) => {
+    const todos = store.get('todos')
+    const result = todoLogic.deleteTodo(todos, id)
+    if (result) store.set('todos', result)
+    return result
+  })
+  ipcMain.handle('get-projects', () => store.get('projects'))
+  ipcMain.handle('save-project', (_event, project) => {
+    const projects = store.get('projects')
+    const result = todoLogic.saveProject(projects, project)
+    if (result) store.set('projects', result)
+    return result
+  })
+  ipcMain.handle('delete-project', (_event, id) => {
+    const projects = store.get('projects')
+    const todos = store.get('todos')
+    const result = todoLogic.deleteProject(projects, todos, id)
+    if (result) {
+      store.set('projects', result.projects)
+      store.set('todos', result.todos)
+    }
+    return result
   })
 
-  ipcMain.handle('pomodoro-pause', () => {
-    pausePomodoro()
-    return true
-  })
+  // -- Diary (MySQL) --
+  ipcMain.handle('get-diary-categories', () => diaryLogic.getCategories())
+  ipcMain.handle('get-diaries', (_event, params) => diaryLogic.getDiaries(params))
+  ipcMain.handle('get-diary-by-id', (_event, id) => diaryLogic.getDiaryById(id))
+  ipcMain.handle('get-diary-count', (_event, categoryId) => diaryLogic.getDiaryCount(categoryId))
+  ipcMain.handle('save-diary', (_event, diary) => diaryLogic.saveDiary(diary))
+  ipcMain.handle('delete-diary', (_event, id) => diaryLogic.deleteDiary(id))
 
-  ipcMain.handle('pomodoro-reset', () => {
-    resetPomodoro()
-    return true
-  })
+  // -- Stock (MySQL) --
+  ipcMain.handle('get-trades', (_event, params) => stockLogic.getTrades(params))
+  ipcMain.handle('get-trade-by-id', (_event, id) => stockLogic.getTradeById(id))
+  ipcMain.handle('get-trade-count', (_event, params) => stockLogic.getTradeCount(params))
+  ipcMain.handle('save-trade', (_event, trade) => stockLogic.saveTrade(trade))
+  ipcMain.handle('delete-trade', (_event, id) => stockLogic.deleteTrade(id))
+  ipcMain.handle('get-positions', (_event, keyword) => stockLogic.getPositions(keyword))
+  ipcMain.handle('get-position-by-id', (_event, id) => stockLogic.getPositionById(id))
+  ipcMain.handle('save-position', (_event, pos) => stockLogic.savePosition(pos))
+  ipcMain.handle('delete-position', (_event, id) => stockLogic.deletePosition(id))
+  ipcMain.handle('get-indicators', (_event, stockCode) => stockLogic.getIndicators(stockCode))
+  ipcMain.handle('save-indicator', (_event, ind) => stockLogic.saveIndicator(ind))
+  ipcMain.handle('delete-indicator', (_event, id) => stockLogic.deleteIndicator(id))
+
+  // -- Sub windows --
+  ipcMain.handle('open-todo-window', () => { createTodoWindow(); return true })
+  ipcMain.handle('open-diary-window', () => { createDiaryWindow(); return true })
+  ipcMain.handle('open-stock-window', () => { createStockWindow(); return true })
+
+  // -- Store (generic) --
+  ipcMain.handle('store-get', (_event, key) => store.get(key))
+  ipcMain.handle('store-set', (_event, key, value) => { store.set(key, value); return true })
 
   // -- General --
   ipcMain.handle('open-settings-window', () => {
@@ -1055,6 +1084,13 @@ function setupIPC() {
 // App lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
+  // Load qimo modules
+  store = require('./store')
+  todoLogic = require('./todo-logic')
+  diaryLogic = require('./diary-logic')
+  stockLogic = require('./stock-logic')
+  db = require('./db')
+
   setupIPC()
   setupClaudeHook()
   createMainWindow()
@@ -1066,11 +1102,10 @@ app.on('window-all-closed', () => {
   // Keep running in tray -- do not quit
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   stopProcessMonitor()
-  if (pomodoroTimer) {
-    clearInterval(pomodoroTimer)
-    pomodoroTimer = null
+  if (db) {
+    try { await db.closePool() } catch {}
   }
   if (tray) tray.destroy()
 })

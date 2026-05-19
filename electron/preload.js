@@ -70,15 +70,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Quota
   getUsageQuotas: () => ipcRenderer.invoke('get-usage-quotas'),
 
-  // Pomodoro
-  startPomodoro: () => ipcRenderer.invoke('pomodoro-start'),
-  pausePomodoro: () => ipcRenderer.invoke('pomodoro-pause'),
-  resetPomodoro: () => ipcRenderer.invoke('pomodoro-reset'),
-  onPomodoroTick: (cb) => {
-    const handler = (_e, state) => cb(state)
-    ipcRenderer.on('pomodoro-tick', handler)
-    return () => ipcRenderer.removeListener('pomodoro-tick', handler)
-  },
+  // Todo
+  getTodos: () => ipcRenderer.invoke('get-todos'),
+  saveTodo: (todo) => ipcRenderer.invoke('save-todo', todo),
+  deleteTodo: (id) => ipcRenderer.invoke('delete-todo', id),
+  getProjects: () => ipcRenderer.invoke('get-projects'),
+  saveProject: (project) => ipcRenderer.invoke('save-project', project),
+  deleteProject: (id) => ipcRenderer.invoke('delete-project', id),
+
+  // Diary
+  getDiaryCategories: () => ipcRenderer.invoke('get-diary-categories'),
+  getDiaries: (params) => ipcRenderer.invoke('get-diaries', params),
+  getDiaryById: (id) => ipcRenderer.invoke('get-diary-by-id', id),
+  getDiaryCount: (categoryId) => ipcRenderer.invoke('get-diary-count', categoryId),
+  saveDiary: (diary) => ipcRenderer.invoke('save-diary', diary),
+  deleteDiary: (id) => ipcRenderer.invoke('delete-diary', id),
+
+  // Stock
+  getTrades: (params) => ipcRenderer.invoke('get-trades', params),
+  getTradeById: (id) => ipcRenderer.invoke('get-trade-by-id', id),
+  getTradeCount: (params) => ipcRenderer.invoke('get-trade-count', params),
+  saveTrade: (trade) => ipcRenderer.invoke('save-trade', trade),
+  deleteTrade: (id) => ipcRenderer.invoke('delete-trade', id),
+  getPositions: (keyword) => ipcRenderer.invoke('get-positions', keyword),
+  getPositionById: (id) => ipcRenderer.invoke('get-position-by-id', id),
+  savePosition: (pos) => ipcRenderer.invoke('save-position', pos),
+  deletePosition: (id) => ipcRenderer.invoke('delete-position', id),
+  getIndicators: (stockCode) => ipcRenderer.invoke('get-indicators', stockCode),
+  saveIndicator: (ind) => ipcRenderer.invoke('save-indicator', ind),
+  deleteIndicator: (id) => ipcRenderer.invoke('delete-indicator', id),
+
+  // Sub windows
+  openTodoWindow: () => ipcRenderer.invoke('open-todo-window'),
+  openDiaryWindow: () => ipcRenderer.invoke('open-diary-window'),
+  openStockWindow: () => ipcRenderer.invoke('open-stock-window'),
+
+  // Store (generic)
+  storeGet: (key) => ipcRenderer.invoke('store-get', key),
+  storeSet: (key, value) => ipcRenderer.invoke('store-set', key, value),
 
   // General
   onPetChanged: (cb) => {

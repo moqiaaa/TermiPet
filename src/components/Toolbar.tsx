@@ -1,19 +1,15 @@
 interface ToolbarProps {
   onToggleCommands: () => void
   onToggleChat: () => void
-  onTogglePomodoro: () => void
   commandsOpen: boolean
   chatOpen: boolean
-  pomodoroOpen: boolean
 }
 
 export function Toolbar({
   onToggleCommands,
   onToggleChat,
-  onTogglePomodoro,
   commandsOpen,
   chatOpen,
-  pomodoroOpen,
 }: ToolbarProps) {
   const handleSettings = () => {
     if (window.electronAPI?.openSettingsWindow) {
@@ -25,6 +21,18 @@ export function Toolbar({
 
   const handleQuit = () => {
     window.electronAPI?.quit?.()
+  }
+
+  const handleOpenTodo = () => {
+    window.electronAPI?.openTodoWindow?.()
+  }
+
+  const handleOpenDiary = () => {
+    window.electronAPI?.openDiaryWindow?.()
+  }
+
+  const handleOpenStock = () => {
+    window.electronAPI?.openStockWindow?.()
   }
 
   return (
@@ -44,11 +52,25 @@ export function Toolbar({
         💬
       </button>
       <button
-        className={`toolbar-btn ${pomodoroOpen ? 'active' : ''}`}
-        onClick={onTogglePomodoro}
-        title="番茄钟"
+        className="toolbar-btn"
+        onClick={handleOpenTodo}
+        title="待办"
       >
-        🍅
+        ✅
+      </button>
+      <button
+        className="toolbar-btn"
+        onClick={handleOpenDiary}
+        title="日记"
+      >
+        📔
+      </button>
+      <button
+        className="toolbar-btn"
+        onClick={handleOpenStock}
+        title="股票"
+      >
+        📈
       </button>
       <button
         className="toolbar-btn"
