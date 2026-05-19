@@ -14,10 +14,17 @@ Source/.build/
 # 应用构建产物
 App/
 dist/
+dist-electron/
+
+# Node.js / Electron
+node_modules/
+.vite/
+out/
 
 # 临时文件
 *.tmp
 *.log
+tmp/
 
 # 本地协作和 Agent 配置
 .claude/
