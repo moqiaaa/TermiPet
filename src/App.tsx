@@ -74,6 +74,10 @@ function PetWindow() {
   // --- Todo reminder ---
   const [todoReminder, setTodoReminder] = useState<Todo | null>(null)
 
+  // --- Walking ---
+  const [walkPhase, setWalkPhase] = useState<string>('idle')
+  const [walkDirection, setWalkDirection] = useState(1)
+
   // --- Window drag ---
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef<{
@@ -91,8 +95,9 @@ function PetWindow() {
   const dragCounterRef = useRef(0)
   const chatPanelRef = useRef<ChatPanelHandle>(null)
 
-  // Current displayed action: preview overrides auto
-  const currentAction = previewAction !== null ? previewAction : autoAction
+  // Current displayed action: preview > walk > auto
+  const walkAction = walkPhase === 'walking' ? 2 : null
+  const currentAction = previewAction !== null ? previewAction : (walkAction !== null ? walkAction : autoAction)
 
   // --- Init ---
   useEffect(() => {
@@ -149,12 +154,19 @@ function PetWindow() {
       }
     })
 
+    // Walking state
+    const cleanupWalk = api.onWalkStateChanged?.((state: { phase: string; direction: number }) => {
+      setWalkPhase(state.phase)
+      setWalkDirection(state.direction)
+    })
+
     return () => {
       cleanupPet()
       cleanupClaude?.()
       cleanupApproval?.()
       cleanupReminder?.()
       cleanupApp?.()
+      cleanupWalk?.()
     }
   }, [])
 
@@ -249,8 +261,12 @@ function PetWindow() {
   }, [])
 
   // --- Window drag logic ---
+  const didDragRef = useRef(false)
+
   const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return
+    didDragRef.current = false
+    window.electronAPI?.pauseWalk?.()
     const pos = await window.electronAPI?.getWindowPosition()
     if (!pos) return
     dragStartRef.current = {
@@ -269,6 +285,9 @@ function PetWindow() {
       if (!dragStartRef.current) return
       const dx = e.screenX - dragStartRef.current.mouseX
       const dy = e.screenY - dragStartRef.current.mouseY
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        didDragRef.current = true
+      }
       window.electronAPI?.setWindowPosition(
         dragStartRef.current.winX + dx,
         dragStartRef.current.winY + dy,
@@ -276,6 +295,9 @@ function PetWindow() {
     }
 
     const handleMouseUp = () => {
+      if (!didDragRef.current) {
+        window.electronAPI?.toggleWalk?.()
+      }
       dragStartRef.current = null
       setIsDragging(false)
     }
@@ -355,20 +377,17 @@ function PetWindow() {
     dragCounterRef.current = 0
     setIsFileDragOver(false)
 
-    if (isEating) { console.log('[drop] blocked: isEating'); return }
+    if (isEating) return
 
     const files = e.dataTransfer.files
-    console.log('[drop] files count:', files.length)
     if (!files.length) return
 
     const file = files[0]
     const filePath = window.electronAPI?.getFilePathForDrop(file)
-    console.log('[drop] filePath:', filePath, 'file.name:', file.name)
-    if (!filePath) { console.log('[drop] no filePath, aborting'); return }
+    if (!filePath) return
 
     const fileInfo = await window.electronAPI?.readDroppedFile(filePath)
-    console.log('[drop] fileInfo:', fileInfo)
-    if (!fileInfo) { console.log('[drop] readDroppedFile returned null'); return }
+    if (!fileInfo) return
 
     // Play eating animation
     await runEatingAnimation(fileInfo.name)
@@ -386,11 +405,15 @@ function PetWindow() {
     }
   }, [isEating, runEatingAnimation])
 
-  // --- Mouse hover ---
-  const handleMouseEnter = () => setHovered(true)
+  // --- Mouse hover (pause walk on hover) ---
+  const handleMouseEnter = () => {
+    setHovered(true)
+    window.electronAPI?.pauseWalk?.()
+  }
   const handleMouseLeave = () => {
     if (!showSelector && !commandsOpen && !chatOpen) {
       setHovered(false)
+      window.electronAPI?.resumeWalk?.()
     }
   }
 
@@ -418,7 +441,10 @@ function PetWindow() {
       <div
         className={`drag-area${isFileDragOver ? ' file-drag-over' : ''}`}
         onMouseDown={handleMouseDown}
-        style={{ transform: `scale(${eatScale})`, transition: 'transform 0.15s ease' }}
+        style={{
+          transform: `scale(${eatScale}) scaleX(${walkDirection === -1 ? -1 : 1})`,
+          transition: 'transform 0.15s ease',
+        }}
       >
         <PetSprite pet={selectedPet} action={currentAction} />
       </div>

@@ -43,6 +43,18 @@ let stockWindow = null
 // Todo reminder
 let todoReminderTimer = null
 
+// Walking engine
+let walkTimer = null
+let walkState = {
+  enabled: true,
+  phase: 'idle',     // 'idle' | 'walking' | 'paused'
+  direction: 1,      // 1 = right, -1 = left
+  speed: 30,         // pixels per second
+  lastTick: 0,
+  pausedByUser: false,
+  phaseTimer: null,
+}
+
 // ---------------------------------------------------------------------------
 // Utility: paths
 // ---------------------------------------------------------------------------
@@ -518,6 +530,109 @@ function readDroppedFile(filePath) {
 }
 
 // ---------------------------------------------------------------------------
+// Walking engine
+// ---------------------------------------------------------------------------
+function sendWalkState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('walk-state-changed', {
+    phase: walkState.phase,
+    direction: walkState.direction,
+  })
+}
+
+function scheduleNextPhase() {
+  if (walkState.phaseTimer) clearTimeout(walkState.phaseTimer)
+
+  if (walkState.phase === 'walking') {
+    const walkDuration = 4000 + Math.random() * 4000
+    walkState.phaseTimer = setTimeout(() => {
+      walkState.phase = 'paused'
+      sendWalkState()
+      scheduleNextPhase()
+    }, walkDuration)
+  } else if (walkState.phase === 'paused') {
+    const pauseDuration = 1500 + Math.random() * 1500
+    walkState.phaseTimer = setTimeout(() => {
+      if (Math.random() < 0.3) walkState.direction *= -1
+      walkState.phase = 'walking'
+      sendWalkState()
+      scheduleNextPhase()
+    }, pauseDuration)
+  }
+}
+
+function walkTick() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (walkState.phase !== 'walking') return
+
+  const now = Date.now()
+  const dt = Math.min((now - walkState.lastTick) / 1000, 0.1)
+  walkState.lastTick = now
+
+  const pos = mainWindow.getPosition()
+  const size = mainWindow.getSize()
+  const display = screen.getDisplayMatching({
+    x: pos[0], y: pos[1], width: size[0], height: size[1],
+  })
+  const bounds = display.workArea
+
+  let newX = pos[0] + walkState.speed * walkState.direction * dt
+
+  const minX = bounds.x + 10
+  const maxX = bounds.x + bounds.width - size[0] - 10
+  if (newX <= minX) {
+    newX = minX
+    walkState.direction = 1
+    sendWalkState()
+  } else if (newX >= maxX) {
+    newX = maxX
+    walkState.direction = -1
+    sendWalkState()
+  }
+
+  mainWindow.setPosition(Math.round(newX), pos[1])
+}
+
+function startWalking() {
+  if (walkTimer) return
+  walkState.phase = 'walking'
+  walkState.lastTick = Date.now()
+  walkState.direction = Math.random() < 0.5 ? 1 : -1
+  sendWalkState()
+  scheduleNextPhase()
+  walkTimer = setInterval(walkTick, 33)
+}
+
+function stopWalking() {
+  if (walkState.phaseTimer) {
+    clearTimeout(walkState.phaseTimer)
+    walkState.phaseTimer = null
+  }
+  if (walkTimer) {
+    clearInterval(walkTimer)
+    walkTimer = null
+  }
+  walkState.phase = 'idle'
+  sendWalkState()
+}
+
+function pauseWalking() {
+  if (walkState.phase === 'idle') return
+  if (walkState.phaseTimer) clearTimeout(walkState.phaseTimer)
+  walkState.phase = 'paused'
+  sendWalkState()
+}
+
+function resumeWalking() {
+  if (!walkState.enabled || walkState.pausedByUser) return
+  if (walkState.phase !== 'paused') return
+  walkState.phase = 'walking'
+  walkState.lastTick = Date.now()
+  sendWalkState()
+  scheduleNextPhase()
+}
+
+// ---------------------------------------------------------------------------
 // Process monitor
 // ---------------------------------------------------------------------------
 const TERMINAL_PROCESSES = new Set([
@@ -765,14 +880,18 @@ function createMainWindow() {
   mainWindow.setIgnoreMouseEvents(false)
 
   if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
     mainWindow.loadURL('http://localhost:5174')
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 
   mainWindow.on('closed', () => {
+    stopWalking()
     mainWindow = null
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    setTimeout(() => startWalking(), 3000)
   })
 }
 
@@ -1407,6 +1526,24 @@ function setupIPC() {
     pendingChatMessage = null
     return msg
   })
+
+  // -- Walking --
+  ipcMain.handle('toggle-walk', () => {
+    if (walkState.phase === 'idle') {
+      walkState.pausedByUser = false
+      startWalking()
+    } else {
+      walkState.pausedByUser = true
+      stopWalking()
+    }
+    return walkState.phase
+  })
+  ipcMain.handle('pause-walk', () => { pauseWalking(); return true })
+  ipcMain.handle('resume-walk', () => { resumeWalking(); return true })
+  ipcMain.handle('get-walk-state', () => ({
+    phase: walkState.phase,
+    direction: walkState.direction,
+  }))
 
   // -- Store (generic) --
   ipcMain.handle('store-get', (_event, key) => store.get(key))

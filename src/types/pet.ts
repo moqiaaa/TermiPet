@@ -263,6 +263,13 @@ export interface ElectronAPI {
   // Window
   setWindowSize: (w: number, h: number, animate?: boolean) => Promise<void>
 
+  // Walking
+  toggleWalk: () => Promise<string>
+  pauseWalk: () => Promise<void>
+  resumeWalk: () => Promise<void>
+  getWalkState: () => Promise<{ phase: string; direction: number }>
+  onWalkStateChanged: (callback: (state: { phase: string; direction: number }) => void) => () => void
+
   // File drop
   getFilePathForDrop: (file: File) => string
   readDroppedFile: (filePath: string) => Promise<DroppedFile | null>
@@ -326,8 +333,13 @@ export interface ElectronAPI {
   dismissTodoReminder: (id: string) => Promise<boolean>
   snoozeTodoReminder: (id: string, minutes: number) => Promise<boolean>
 
-  // Speech
-  transcribeAudio: (audioBase64: string) => Promise<{ text: string } | { error: string }>
+  // Speech / Recording
+  transcribeAudio: (audioBase64: string) => Promise<{ text?: string; error?: string }>
+  summarizeTranscript: (transcript: string, prompt: string) => Promise<{ text?: string; error?: string }>
+
+  // Scenes
+  getScenes: () => Promise<{ scenes: Scene[]; defaultSceneId: string }>
+  saveScenes: (scenes: Scene[], defaultSceneId: string) => Promise<boolean>
 
   // Sub windows
   openTodoWindow: () => Promise<void>
@@ -337,6 +349,7 @@ export interface ElectronAPI {
   onStartVoiceTodo: (callback: () => void) => () => void
   openDiaryWindow: () => Promise<void>
   openStockWindow: () => Promise<void>
+  openRecordingWindow: () => Promise<void>
   openChatWindow: () => Promise<void>
   openChatWindowWithMessage: (payload: ChatMessagePayload) => Promise<void>
   getPendingChatMessage: () => Promise<ChatMessagePayload | null>
@@ -353,6 +366,29 @@ export interface ElectronAPI {
   onPetChanged: (callback: (petId: string) => void) => () => void
   openSettingsWindow: () => Promise<void>
   quit: () => Promise<void>
+}
+
+// --- Recording / Scene ---
+
+export interface Scene {
+  id: string
+  name: string
+  summaryPrompt: string
+  todoPrompt: string
+}
+
+export interface TranscriptEntry {
+  speaker: number
+  startTime: number
+  text: string
+}
+
+export interface RecordingResult {
+  transcript: TranscriptEntry[]
+  keywords: string[]
+  audioBase64: string
+  audioDuration: number
+  sceneId: string
 }
 
 // --- Mode Shortcut Toolbar ---
@@ -383,6 +419,7 @@ export type ShortcutActionType =
   | 'openDiaryWindow'
   | 'openStockWindow'
   | 'openSettingsWindow'
+  | 'openRecordingWindow'
   | 'executeCommand'
   | 'quit'
 

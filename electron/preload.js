@@ -36,6 +36,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Window
   setWindowSize: (w, h, animate) => ipcRenderer.invoke('set-window-size', w, h, animate),
 
+  // Walking
+  toggleWalk: () => ipcRenderer.invoke('toggle-walk'),
+  pauseWalk: () => ipcRenderer.invoke('pause-walk'),
+  resumeWalk: () => ipcRenderer.invoke('resume-walk'),
+  getWalkState: () => ipcRenderer.invoke('get-walk-state'),
+  onWalkStateChanged: (cb) => {
+    const handler = (_e, state) => cb(state)
+    ipcRenderer.on('walk-state-changed', handler)
+    return () => ipcRenderer.removeListener('walk-state-changed', handler)
+  },
+
   // File drop
   getFilePathForDrop: (file) => webUtils.getPathForFile(file),
   readDroppedFile: (filePath) => ipcRenderer.invoke('read-dropped-file', filePath),
