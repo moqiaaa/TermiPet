@@ -141,7 +141,22 @@ export interface Todo {
   projectId: string
   createdAt: number
   dueDate?: string
+  reminderAt?: string
   note?: string
+  notified?: boolean
+  priority?: 'low' | 'medium' | 'high'
+  status?: 'backlog' | 'in_progress' | 'waiting' | 'done'
+  repeatRule?: 'none' | 'daily' | 'weekly' | 'monthly'
+  estimatedMinutes?: number
+  completedAt?: number
+  updatedAt?: number
+  subtasks?: TodoSubtask[]
+}
+
+export interface TodoSubtask {
+  id: string
+  title: string
+  done: boolean
 }
 
 export interface Project {
@@ -212,6 +227,18 @@ export interface StockIndicator {
   updated_at: string
 }
 
+export interface DroppedFile {
+  type: 'image' | 'document'
+  name: string
+  path: string
+  base64?: string
+}
+
+export interface ChatMessagePayload {
+  text: string
+  images?: string[]
+}
+
 export interface ElectronAPI {
   // Pet management
   getPets: () => Promise<PetMetadata[]>
@@ -233,13 +260,20 @@ export interface ElectronAPI {
   onClaudeStateChanged: (callback: (state: ClaudeState) => void) => () => void
   onApprovalPrompt: (callback: (prompt: ApprovalPrompt) => void) => () => void
 
+  // Window
+  setWindowSize: (w: number, h: number, animate?: boolean) => Promise<void>
+
+  // File drop
+  getFilePathForDrop: (file: File) => string
+  readDroppedFile: (filePath: string) => Promise<DroppedFile | null>
+
   // Commands
   getCommands: () => Promise<Command[]>
   saveCommands: (cmds: Command[]) => Promise<void>
   executeCommand: (text: string) => Promise<void>
 
   // Chat
-  sendChatMessage: (msg: string, config?: Record<string, unknown>) => Promise<void>
+  sendChatMessage: (msg: string | ChatMessagePayload, config?: Record<string, unknown>) => Promise<void>
   cancelChat: () => Promise<void>
   getChatHistory: () => Promise<ChatMessage[]>
   clearChatHistory: () => Promise<void>
@@ -287,19 +321,86 @@ export interface ElectronAPI {
   saveIndicator: (ind: Partial<StockIndicator>) => Promise<StockIndicator | null>
   deleteIndicator: (id: number) => Promise<boolean>
 
+  // Todo reminder
+  onTodoReminder: (callback: (todo: Todo) => void) => () => void
+  dismissTodoReminder: (id: string) => Promise<boolean>
+  snoozeTodoReminder: (id: string, minutes: number) => Promise<boolean>
+
+  // Speech
+  transcribeAudio: (audioBase64: string) => Promise<{ text: string } | { error: string }>
+
   // Sub windows
   openTodoWindow: () => Promise<void>
+  openTodoWindowNew: () => Promise<void>
+  openTodoWindowVoice: () => Promise<void>
+  onStartNewTodo: (callback: () => void) => () => void
+  onStartVoiceTodo: (callback: () => void) => () => void
   openDiaryWindow: () => Promise<void>
   openStockWindow: () => Promise<void>
+  openChatWindow: () => Promise<void>
+  openChatWindowWithMessage: (payload: ChatMessagePayload) => Promise<void>
+  getPendingChatMessage: () => Promise<ChatMessagePayload | null>
 
   // Store (generic)
   storeGet: (key: string) => Promise<unknown>
   storeSet: (key: string, value: unknown) => Promise<boolean>
 
+  // Mode Shortcut
+  getModeShortcutConfig: () => Promise<ModeShortcutConfig>
+  saveModeShortcutConfig: (config: ModeShortcutConfig) => Promise<ModeShortcutConfig>
+
   // Misc
   onPetChanged: (callback: (petId: string) => void) => () => void
   openSettingsWindow: () => Promise<void>
   quit: () => Promise<void>
+}
+
+// --- Mode Shortcut Toolbar ---
+
+export type ShortcutModeId =
+  | 'assistant'
+  | 'todo'
+  | 'stock'
+  | 'diary'
+  | 'commands'
+  | string
+
+export interface ShortcutMode {
+  id: ShortcutModeId
+  name: string
+  icon?: string
+  color?: string
+  order: number
+  enabled: boolean
+}
+
+export type ShortcutActionType =
+  | 'toggleCommands'
+  | 'toggleChat'
+  | 'openTodoWindow'
+  | 'addTodo'
+  | 'voiceTodo'
+  | 'openDiaryWindow'
+  | 'openStockWindow'
+  | 'openSettingsWindow'
+  | 'executeCommand'
+  | 'quit'
+
+export interface ModeShortcut {
+  id: string
+  modeId: ShortcutModeId
+  label: string
+  icon?: string
+  actionType: ShortcutActionType
+  actionPayload?: Record<string, unknown>
+  order: number
+  enabled: boolean
+}
+
+export interface ModeShortcutConfig {
+  activeModeId: ShortcutModeId
+  modes: ShortcutMode[]
+  shortcuts: ModeShortcut[]
 }
 
 declare global {

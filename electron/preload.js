@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Pet
@@ -33,6 +33,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCommands: (commands) => ipcRenderer.invoke('save-commands', commands),
   executeCommand: (text) => ipcRenderer.invoke('execute-command', text),
 
+  // Window
+  setWindowSize: (w, h, animate) => ipcRenderer.invoke('set-window-size', w, h, animate),
+
+  // File drop
+  getFilePathForDrop: (file) => webUtils.getPathForFile(file),
+  readDroppedFile: (filePath) => ipcRenderer.invoke('read-dropped-file', filePath),
+
   // Chat
   sendChatMessage: (message, config) => ipcRenderer.invoke('send-chat-message', message, config),
   cancelChat: () => ipcRenderer.invoke('cancel-chat'),
@@ -44,7 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('chat-chunk', handler)
   },
   onChatComplete: (cb) => {
-    const handler = () => cb()
+    const handler = (_e, msg) => cb(msg)
     ipcRenderer.on('chat-complete', handler)
     return () => ipcRenderer.removeListener('chat-complete', handler)
   },
@@ -100,10 +107,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveIndicator: (ind) => ipcRenderer.invoke('save-indicator', ind),
   deleteIndicator: (id) => ipcRenderer.invoke('delete-indicator', id),
 
+  // Todo reminder
+  onTodoReminder: (cb) => {
+    const handler = (_e, todo) => cb(todo)
+    ipcRenderer.on('todo-reminder', handler)
+    return () => ipcRenderer.removeListener('todo-reminder', handler)
+  },
+  dismissTodoReminder: (id) => ipcRenderer.invoke('dismiss-todo-reminder', id),
+  snoozeTodoReminder: (id, minutes) => ipcRenderer.invoke('snooze-todo-reminder', id, minutes),
+
+  // Speech
+  transcribeAudio: (audioBase64) => ipcRenderer.invoke('transcribe-audio', audioBase64),
+
+  // Mode Shortcut Config
+  getModeShortcutConfig: () => ipcRenderer.invoke('get-mode-shortcut-config'),
+  saveModeShortcutConfig: (config) => ipcRenderer.invoke('save-mode-shortcut-config', config),
+
   // Sub windows
   openTodoWindow: () => ipcRenderer.invoke('open-todo-window'),
+  openTodoWindowNew: () => ipcRenderer.invoke('open-todo-window-new'),
+  openTodoWindowVoice: () => ipcRenderer.invoke('open-todo-window-voice'),
+  onStartNewTodo: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('start-new-todo', handler)
+    return () => ipcRenderer.removeListener('start-new-todo', handler)
+  },
+  onStartVoiceTodo: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('start-voice-todo', handler)
+    return () => ipcRenderer.removeListener('start-voice-todo', handler)
+  },
   openDiaryWindow: () => ipcRenderer.invoke('open-diary-window'),
   openStockWindow: () => ipcRenderer.invoke('open-stock-window'),
+  openChatWindow: () => ipcRenderer.invoke('open-chat-window'),
+  openChatWindowWithMessage: (payload) => ipcRenderer.invoke('open-chat-window-with-message', payload),
+  getPendingChatMessage: () => ipcRenderer.invoke('get-pending-chat-message'),
 
   // Store (generic)
   storeGet: (key) => ipcRenderer.invoke('store-get', key),

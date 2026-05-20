@@ -40,6 +40,9 @@ let todoWindow = null
 let diaryWindow = null
 let stockWindow = null
 
+// Todo reminder
+let todoReminderTimer = null
+
 // ---------------------------------------------------------------------------
 // Utility: paths
 // ---------------------------------------------------------------------------
@@ -213,9 +216,12 @@ const DEFAULT_SETTINGS = {
   ownerName: '',
   personality: 'happy',
   customPrompt: '',
-  chatProvider: 'ollama',
-  ollamaModel: 'qwen2.5:0.5b',
-  apiKeys: {},
+  chatProvider: 'custom',
+  ollamaModel: 'qwen-vl-max',
+  apiKeys: {
+    custom: 'sk-0baec11198694fde9ee9bb632ce619f9',
+    custom_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  },
 }
 
 function loadSettings() {
@@ -333,23 +339,81 @@ function getProviderHeaders(config) {
   return headers
 }
 
-async function sendChatMessage(message, config) {
-  // Add user message to history
-  chatHistory.push({ role: 'user', content: message })
+function resolveConfig(config) {
+  if (config && config.provider) return config
+  const settings = loadSettings()
+  return {
+    provider: settings.chatProvider || 'ollama',
+    model: settings.ollamaModel || 'qwen2.5:0.5b',
+    personality: settings.personality || '',
+    apiKey: settings.apiKeys?.[settings.chatProvider] || '',
+    endpoint: settings.apiKeys?.[settings.chatProvider + '_endpoint'] || '',
+  }
+}
 
-  // Build system prompt if personality is set
+async function sendChatMessage(message, config) {
+  config = resolveConfig(config)
+
+  let displayText
+  let ollamaUserMsg
+  let openaiUserMsg
+
+  if (typeof message === 'string') {
+    displayText = message
+    ollamaUserMsg = { role: 'user', content: message }
+    openaiUserMsg = { role: 'user', content: message }
+  } else {
+    displayText = message.text
+    const images = message.images || []
+    if (images.length > 0) {
+      ollamaUserMsg = { role: 'user', content: message.text, images }
+      openaiUserMsg = {
+        role: 'user',
+        content: [
+          { type: 'text', text: message.text },
+          ...images.map((img) => ({
+            type: 'image_url',
+            image_url: { url: `data:image/png;base64,${img}` },
+          })),
+        ],
+      }
+    } else {
+      ollamaUserMsg = { role: 'user', content: message.text }
+      openaiUserMsg = { role: 'user', content: message.text }
+    }
+  }
+
+  chatHistory.push(openaiUserMsg)
+
+  const isOllama = config.provider === 'ollama'
+
+  const providerHistory = chatHistory.map((msg) => {
+    if (isOllama && Array.isArray(msg.content)) {
+      const textPart = msg.content.find((p) => p.type === 'text')
+      const imageParts = msg.content.filter((p) => p.type === 'image_url')
+      return {
+        role: msg.role,
+        content: textPart?.text || '',
+        images: imageParts.map((p) => {
+          const url = p.image_url.url
+          return url.startsWith('data:') ? url.split(',')[1] : url
+        }),
+      }
+    }
+    return msg
+  })
+
   const systemMessages = []
   if (config.personality) {
     systemMessages.push({ role: 'system', content: config.personality })
   }
-  const messages = [...systemMessages, ...chatHistory]
+  const messages = [...systemMessages, ...providerHistory]
 
   const abortController = new AbortController()
   currentChatAbortController = abortController
 
   const url = getProviderURL(config)
   const headers = getProviderHeaders(config)
-  const isOllama = config.provider === 'ollama'
   const body = isOllama
     ? buildOllamaPayload(messages, config.model)
     : buildOpenAIPayload(messages, config.model)
@@ -358,7 +422,6 @@ async function sendChatMessage(message, config) {
 
   try {
     if (isOllama) {
-      // Ollama streaming: each line is a JSON object with { message: { content } }
       await httpStream(url, {
         method: 'POST',
         headers,
@@ -382,7 +445,6 @@ async function sendChatMessage(message, config) {
         },
       })
     } else {
-      // OpenAI-compatible streaming: SSE format with data: {...}
       await httpStream(url, {
         method: 'POST',
         headers,
@@ -411,11 +473,14 @@ async function sendChatMessage(message, config) {
       })
     }
 
-    // Store assistant response
     chatHistory.push({ role: 'assistant', content: fullResponse })
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('chat-complete')
+      mainWindow.webContents.send('chat-complete', {
+        role: 'assistant',
+        content: fullResponse,
+        timestamp: Date.now(),
+      })
     }
   } catch (err) {
     if (err.message === 'Request aborted') return
@@ -424,6 +489,31 @@ async function sendChatMessage(message, config) {
     }
   } finally {
     currentChatAbortController = null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// File drop: read dropped file for pet interaction
+// ---------------------------------------------------------------------------
+const IMAGE_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'tiff', 'bmp', 'heic', 'heif',
+])
+
+function readDroppedFile(filePath) {
+  try {
+    const ext = path.extname(filePath).slice(1).toLowerCase()
+    const name = path.basename(filePath)
+    const isImage = IMAGE_EXTENSIONS.has(ext)
+
+    if (isImage) {
+      const buffer = fs.readFileSync(filePath)
+      const base64 = buffer.toString('base64')
+      return { type: 'image', name, path: filePath, base64 }
+    }
+
+    return { type: 'document', name, path: filePath }
+  } catch {
+    return null
   }
 }
 
@@ -674,8 +764,8 @@ function createMainWindow() {
 
   mainWindow.setIgnoreMouseEvents(false)
 
-
   if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
     mainWindow.loadURL('http://localhost:5174')
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
@@ -696,6 +786,13 @@ function createSettingsWindow() {
     width: 560,
     height: 640,
     resizable: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#1a1a2e',
+      symbolColor: '#e0e0e0',
+      height: 36,
+    },
+    backgroundColor: '#1a1a2e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -717,10 +814,18 @@ function createSettingsWindow() {
 }
 
 function createSubWindow(hashRoute, width, height) {
+  const isTodoWindow = hashRoute === '/todo'
   const win = new BrowserWindow({
     width,
     height,
     resizable: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: isTodoWindow ? '#f5f7fb' : '#1a1a2e',
+      symbolColor: isTodoWindow ? '#334155' : '#e0e0e0',
+      height: 36,
+    },
+    backgroundColor: isTodoWindow ? '#f5f7fb' : '#1a1a2e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -746,7 +851,8 @@ function createTodoWindow() {
     todoWindow.focus()
     return
   }
-  todoWindow = createSubWindow('/todo', 680, 520)
+  todoWindow = createSubWindow('/todo', 1120, 760)
+  todoWindow.setMinimumSize(900, 680)
   todoWindow.on('closed', () => { todoWindow = null })
 }
 
@@ -766,6 +872,26 @@ function createStockWindow() {
   }
   stockWindow = createSubWindow('/stock', 800, 520)
   stockWindow.on('closed', () => { stockWindow = null })
+}
+
+let chatWindow = null
+let pendingChatMessage = null
+
+function createChatWindow() {
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.focus()
+    return
+  }
+  chatWindow = createSubWindow('/chat', 480, 600)
+  chatWindow.on('closed', () => { chatWindow = null })
+}
+
+function openChatWindowWithMessage(payload) {
+  pendingChatMessage = payload
+  createChatWindow()
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    chatWindow.focus()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -973,6 +1099,15 @@ function setupIPC() {
     }
   })
 
+  // -- Window resize --
+  ipcMain.handle('set-window-size', (_event, width, height, animate) => {
+    if (!mainWindow) return
+    mainWindow.setSize(width, height, !!animate)
+  })
+
+  // -- File drop --
+  ipcMain.handle('read-dropped-file', (_event, filePath) => readDroppedFile(filePath))
+
   // -- Chat --
   ipcMain.handle('send-chat-message', async (_event, message, config) => {
     await sendChatMessage(message, config)
@@ -1060,10 +1195,218 @@ function setupIPC() {
   ipcMain.handle('save-indicator', (_event, ind) => stockLogic.saveIndicator(ind))
   ipcMain.handle('delete-indicator', (_event, id) => stockLogic.deleteIndicator(id))
 
+  // -- Todo reminder --
+  ipcMain.handle('dismiss-todo-reminder', (_event, id) => {
+    const todos = store.get('todos') || []
+    const updated = todos.map(t => t.id === id ? { ...t, notified: true } : t)
+    store.set('todos', updated)
+    return true
+  })
+
+  ipcMain.handle('snooze-todo-reminder', (_event, id, minutes) => {
+    const todos = store.get('todos') || []
+    const delayMinutes = Number.isFinite(Number(minutes)) ? Math.max(1, Number(minutes)) : 10
+    const reminderAt = new Date(Date.now() + delayMinutes * 60_000).toISOString()
+    const updated = todos.map(t => t.id === id ? { ...t, reminderAt, notified: false } : t)
+    store.set('todos', updated)
+    return true
+  })
+
+  function checkTodoReminders() {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const todos = store.get('todos') || []
+    const now = Date.now()
+    for (const todo of todos) {
+      if (todo.done || todo.notified) continue
+      const reminderSource = todo.reminderAt || todo.dueDate
+      if (!reminderSource) continue
+      const dueTime = new Date(reminderSource).getTime()
+      if (isNaN(dueTime)) continue
+      if (now >= dueTime) {
+        mainWindow.webContents.send('todo-reminder', todo)
+        const updated = todos.map(t => t.id === todo.id ? { ...t, notified: true } : t)
+        store.set('todos', updated)
+        break
+      }
+    }
+  }
+
+  todoReminderTimer = setInterval(checkTodoReminders, 60_000)
+  checkTodoReminders()
+
+  // -- Speech to text (DashScope FunASR / SenseVoice) --
+  ipcMain.handle('transcribe-audio', async (_event, audioBase64) => {
+    const speechKey = store.get('alicloud.speechKey')
+    if (!speechKey) {
+      return { error: '未配置语音识别 API Key，请在设置中配置' }
+    }
+
+    try {
+      const audioBuffer = Buffer.from(audioBase64, 'base64')
+
+      // Step 1: Upload audio file to DashScope
+      const boundary = '----FormBound' + Date.now().toString(36)
+      const parts = [
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\nfile-extract\r\n`),
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.webm"\r\nContent-Type: audio/webm\r\n\r\n`),
+        audioBuffer,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]
+      const uploadBody = Buffer.concat(parts)
+
+      const uploadRes = await httpRequest('https://dashscope.aliyuncs.com/compatible-mode/v1/files', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${speechKey}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body: uploadBody,
+      })
+
+      if (uploadRes.status >= 400) {
+        return { error: `文件上传失败: HTTP ${uploadRes.status}: ${uploadRes.body}` }
+      }
+
+      const uploadData = JSON.parse(uploadRes.body)
+      const fileId = uploadData.id
+      if (!fileId) {
+        return { error: `文件上传失败: 未返回 file id: ${uploadRes.body}` }
+      }
+
+      // Step 2: Submit transcription task
+      const taskBody = JSON.stringify({
+        model: 'sensevoice-v1',
+        input: { file_urls: [`fileid://${fileId}`] },
+        parameters: { language_hints: ['zh'] },
+      })
+
+      const taskRes = await httpRequest('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${speechKey}`,
+          'Content-Type': 'application/json',
+          'X-DashScope-Async': 'enable',
+        },
+        body: taskBody,
+      })
+
+      if (taskRes.status >= 400) {
+        return { error: `提交识别任务失败: HTTP ${taskRes.status}: ${taskRes.body}` }
+      }
+
+      const taskData = JSON.parse(taskRes.body)
+      const taskId = taskData.output?.task_id
+      if (!taskId) {
+        return { error: `提交识别任务失败: 未返回 task_id: ${taskRes.body}` }
+      }
+
+      // Step 3: Poll for results (max 60s)
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+
+        const pollRes = await httpRequest(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${speechKey}` },
+        })
+
+        const pollData = JSON.parse(pollRes.body)
+        const status = pollData.output?.task_status
+
+        if (status === 'SUCCEEDED') {
+          const results = pollData.output?.results
+          if (!results || results.length === 0) {
+            return { error: '识别完成但无结果' }
+          }
+
+          const transUrl = results[0].transcription_url
+          if (!transUrl) {
+            return { text: results[0].text || '' }
+          }
+
+          // Fetch the transcription JSON
+          const transRes = await httpRequest(transUrl, { method: 'GET' })
+          const transData = JSON.parse(transRes.body)
+
+          let text = ''
+          if (transData.transcripts) {
+            for (const t of transData.transcripts) {
+              if (t.sentences) {
+                text += t.sentences.map(s => s.text).join('')
+              } else if (t.text) {
+                text += t.text
+              }
+            }
+          }
+          if (!text && transData.text) {
+            text = transData.text
+          }
+
+          return { text }
+        }
+
+        if (status === 'FAILED') {
+          return { error: `语音识别失败: ${pollData.output?.message || pollData.output?.code || '未知错误'}` }
+        }
+      }
+
+      return { error: '语音识别超时（60秒）' }
+    } catch (err) {
+      return { error: `语音识别失败: ${err.message}` }
+    }
+  })
+
+  // -- Mode Shortcut Config --
+  ipcMain.handle('get-mode-shortcut-config', () => {
+    return store.get('modeShortcutConfig')
+  })
+
+  ipcMain.handle('save-mode-shortcut-config', (_event, config) => {
+    store.set('modeShortcutConfig', config)
+    return store.get('modeShortcutConfig')
+  })
+
   // -- Sub windows --
   ipcMain.handle('open-todo-window', () => { createTodoWindow(); return true })
+  ipcMain.handle('open-todo-window-new', () => {
+    createTodoWindow()
+    const win = todoWindow
+    if (win && !win.isDestroyed()) {
+      if (win.webContents.isLoading()) {
+        win.webContents.once('did-finish-load', () => {
+          win.webContents.send('start-new-todo')
+        })
+      } else {
+        win.webContents.send('start-new-todo')
+      }
+    }
+    return true
+  })
+  ipcMain.handle('open-todo-window-voice', () => {
+    createTodoWindow()
+    const win = todoWindow
+    if (win && !win.isDestroyed()) {
+      if (win.webContents.isLoading()) {
+        win.webContents.once('did-finish-load', () => {
+          win.webContents.send('start-voice-todo')
+        })
+      } else {
+        win.webContents.send('start-voice-todo')
+      }
+    }
+    return true
+  })
   ipcMain.handle('open-diary-window', () => { createDiaryWindow(); return true })
   ipcMain.handle('open-stock-window', () => { createStockWindow(); return true })
+  ipcMain.handle('open-chat-window', () => { createChatWindow(); return true })
+  ipcMain.handle('open-chat-window-with-message', (_event, payload) => {
+    openChatWindowWithMessage(payload)
+    return true
+  })
+  ipcMain.handle('get-pending-chat-message', () => {
+    const msg = pendingChatMessage
+    pendingChatMessage = null
+    return msg
+  })
 
   // -- Store (generic) --
   ipcMain.handle('store-get', (_event, key) => store.get(key))
@@ -1090,6 +1433,25 @@ app.whenReady().then(() => {
   diaryLogic = require('./diary-logic')
   stockLogic = require('./stock-logic')
   db = require('./db')
+
+  if (!store.get('alicloud.speechKey')) {
+    store.set('alicloud.speechKey', 'sk-0baec11198694fde9ee9bb632ce619f9')
+  }
+
+  // Migrate: ensure new default shortcuts exist in user's config
+  const cfg = store.get('modeShortcutConfig')
+  if (cfg && cfg.shortcuts) {
+    const defaultShortcuts = [
+      { id: 'todo-add', modeId: 'todo', label: '新增待办', icon: '➕', actionType: 'addTodo', order: 1, enabled: true },
+      { id: 'todo-voice', modeId: 'todo', label: '语音录入', icon: '🎤', actionType: 'voiceTodo', order: 2, enabled: true },
+    ]
+    const existingIds = new Set(cfg.shortcuts.map(s => s.id))
+    const missing = defaultShortcuts.filter(s => !existingIds.has(s.id))
+    if (missing.length > 0) {
+      cfg.shortcuts.push(...missing)
+      store.set('modeShortcutConfig', cfg)
+    }
+  }
 
   setupIPC()
   setupClaudeHook()

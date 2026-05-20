@@ -3,23 +3,32 @@ import { PetSprite } from './components/PetSprite'
 import { PetSelector } from './components/PetSelector'
 import { StatusBar } from './components/StatusBar'
 import { ActionBar } from './components/ActionBar'
-import { Toolbar } from './components/Toolbar'
+import { ModeShortcutToolbar } from './components/ModeShortcutToolbar'
 import { CommandPanel } from './components/CommandPanel'
 import { ChatPanel } from './components/ChatPanel'
+import type { ChatPanelHandle } from './components/ChatPanel'
 import { ApprovalPrompt } from './components/ApprovalPrompt'
+import { TodoReminder } from './components/TodoReminder'
 import { QuotaCards } from './components/QuotaCard'
 import { SettingsWindow } from './components/SettingsWindow'
 import { TodoWindow } from './components/TodoWindow'
 import { DiaryWindow } from './components/DiaryWindow'
 import { StockWindow } from './components/StockWindow'
+import { ChatWindow } from './components/ChatWindow'
 import type {
   PetMetadata,
   ClaudeState,
   ApprovalPrompt as ApprovalPromptType,
   UsageQuota,
   AgentState,
+  Todo,
+  ModeShortcutConfig,
+  ModeShortcut,
+  ShortcutModeId,
 } from './types/pet'
 import './App.css'
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** Map Claude agent state to a pet action index */
 function resolveAction(state: AgentState): number {
@@ -58,7 +67,14 @@ function PetWindow() {
   // --- Quotas ---
   const [quotas, setQuotas] = useState<UsageQuota[]>([])
 
-  // --- Drag ---
+  // --- Mode shortcut ---
+  const [modeConfig, setModeConfig] = useState<ModeShortcutConfig | null>(null)
+  const [activeModeId, setActiveModeId] = useState<ShortcutModeId>('assistant')
+
+  // --- Todo reminder ---
+  const [todoReminder, setTodoReminder] = useState<Todo | null>(null)
+
+  // --- Window drag ---
   const [isDragging, setIsDragging] = useState(false)
   const dragStartRef = useRef<{
     mouseX: number
@@ -66,6 +82,14 @@ function PetWindow() {
     winX: number
     winY: number
   } | null>(null)
+
+  // --- File drop ---
+  const [isFileDragOver, setIsFileDragOver] = useState(false)
+  const [isEating, setIsEating] = useState(false)
+  const [eatScale, setEatScale] = useState(1)
+  const [speechBubble, setSpeechBubble] = useState<string | null>(null)
+  const dragCounterRef = useRef(0)
+  const chatPanelRef = useRef<ChatPanelHandle>(null)
 
   // Current displayed action: preview overrides auto
   const currentAction = previewAction !== null ? previewAction : autoAction
@@ -82,6 +106,12 @@ function PetWindow() {
       const selectedId = await api.getSelectedPet()
       const found = petList.find((p) => p.id === selectedId) || petList[0]
       if (found) setSelectedPet(found)
+
+      const shortcutConfig = await api.getModeShortcutConfig?.()
+      if (shortcutConfig) {
+        setModeConfig(shortcutConfig)
+        setActiveModeId(shortcutConfig.activeModeId)
+      }
     }
     init()
 
@@ -104,6 +134,11 @@ function PetWindow() {
       setApproval(prompt)
     })
 
+    // Todo reminder
+    const cleanupReminder = api.onTodoReminder?.((todo: Todo) => {
+      setTodoReminder(todo)
+    })
+
     // Active app
     const cleanupApp = api.onActiveAppChanged?.((app: unknown) => {
       if (typeof app === 'string') {
@@ -118,6 +153,7 @@ function PetWindow() {
       cleanupPet()
       cleanupClaude?.()
       cleanupApproval?.()
+      cleanupReminder?.()
       cleanupApp?.()
     }
   }, [])
@@ -150,7 +186,69 @@ function PetWindow() {
     setApproval(null)
   }, [])
 
-  // --- Drag logic ---
+  // --- Todo reminder ---
+  const handleDismissReminder = useCallback((id: string) => {
+    window.electronAPI?.dismissTodoReminder?.(id)
+    setTodoReminder(null)
+  }, [])
+
+  const handleOpenTodo = useCallback(() => {
+    window.electronAPI?.openTodoWindow?.()
+  }, [])
+
+  const handleSnoozeReminder = useCallback((id: string, minutes: number) => {
+    window.electronAPI?.snoozeTodoReminder?.(id, minutes)
+    setTodoReminder(null)
+  }, [])
+
+  // --- Mode shortcut handlers ---
+  const handleModeChange = useCallback((modeId: ShortcutModeId) => {
+    setActiveModeId(modeId)
+    if (modeConfig) {
+      const updated = { ...modeConfig, activeModeId: modeId }
+      setModeConfig(updated)
+      window.electronAPI?.saveModeShortcutConfig?.(updated)
+    }
+  }, [modeConfig])
+
+  const executeModeShortcut = useCallback((shortcut: ModeShortcut) => {
+    switch (shortcut.actionType) {
+      case 'toggleCommands':
+        setCommandsOpen((v) => !v)
+        break
+      case 'toggleChat':
+        window.electronAPI?.openChatWindow?.()
+        break
+      case 'openTodoWindow':
+        window.electronAPI?.openTodoWindow?.()
+        break
+      case 'addTodo':
+        window.electronAPI?.openTodoWindowNew?.()
+        break
+      case 'voiceTodo':
+        window.electronAPI?.openTodoWindowVoice?.()
+        break
+      case 'openDiaryWindow':
+        window.electronAPI?.openDiaryWindow?.()
+        break
+      case 'openStockWindow':
+        window.electronAPI?.openStockWindow?.()
+        break
+      case 'openSettingsWindow':
+        window.electronAPI?.openSettingsWindow?.()
+        break
+      case 'executeCommand':
+        if (typeof shortcut.actionPayload?.command === 'string') {
+          window.electronAPI?.executeCommand?.(shortcut.actionPayload.command)
+        }
+        break
+      case 'quit':
+        window.electronAPI?.quit?.()
+        break
+    }
+  }, [])
+
+  // --- Window drag logic ---
   const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return
     const pos = await window.electronAPI?.getWindowPosition()
@@ -190,6 +288,104 @@ function PetWindow() {
     }
   }, [isDragging])
 
+  // --- File drop: eating animation ---
+  const runEatingAnimation = useCallback(async (fileName: string) => {
+    setIsEating(true)
+    setSpeechBubble(`嚼嚼… ${fileName}`)
+
+    // Gulp
+    setEatScale(1.18)
+    await sleep(200)
+    setEatScale(1.0)
+    await sleep(150)
+
+    // Chewing: alternate actions
+    for (let i = 0; i < 3; i++) {
+      setPreviewAction(7) // think
+      await sleep(125)
+      setPreviewAction(3) // happy
+      await sleep(125)
+    }
+
+    // Celebrate
+    setPreviewAction(8)
+    setSpeechBubble(null)
+    await sleep(600)
+
+    setPreviewAction(null)
+    setIsEating(false)
+  }, [])
+
+  // --- File drop handlers ---
+  const handleFileDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }, [])
+
+  const handleFileDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (dragCounterRef.current === 1 && e.dataTransfer.types.includes('Files') && !isEating) {
+      setIsFileDragOver(true)
+      setPreviewAction(4) // alert - pet notices
+      setSpeechBubble('嗯？给我吃的？')
+    }
+  }, [isEating])
+
+  const handleFileDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) {
+      setIsFileDragOver(false)
+      if (!isEating) {
+        setPreviewAction(null)
+        setSpeechBubble(null)
+      }
+    }
+  }, [isEating])
+
+  const handleFileDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsFileDragOver(false)
+
+    if (isEating) { console.log('[drop] blocked: isEating'); return }
+
+    const files = e.dataTransfer.files
+    console.log('[drop] files count:', files.length)
+    if (!files.length) return
+
+    const file = files[0]
+    const filePath = window.electronAPI?.getFilePathForDrop(file)
+    console.log('[drop] filePath:', filePath, 'file.name:', file.name)
+    if (!filePath) { console.log('[drop] no filePath, aborting'); return }
+
+    const fileInfo = await window.electronAPI?.readDroppedFile(filePath)
+    console.log('[drop] fileInfo:', fileInfo)
+    if (!fileInfo) { console.log('[drop] readDroppedFile returned null'); return }
+
+    // Play eating animation
+    await runEatingAnimation(fileInfo.name)
+
+    // Open independent chat window with message
+    if (fileInfo.type === 'image' && fileInfo.base64) {
+      window.electronAPI?.openChatWindowWithMessage({
+        text: '这张图里是什么？请帮我看看',
+        images: [fileInfo.base64],
+      })
+    } else {
+      window.electronAPI?.openChatWindowWithMessage({
+        text: `请帮我看看这个文件「${fileInfo.name}」是什么 / 主要内容是什么\n文件路径: ${fileInfo.path}`,
+      })
+    }
+  }, [isEating, runEatingAnimation])
+
   // --- Mouse hover ---
   const handleMouseEnter = () => setHovered(true)
   const handleMouseLeave = () => {
@@ -206,9 +402,24 @@ function PetWindow() {
       className="app-root"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onDragOver={handleFileDragOver}
+      onDragEnter={handleFileDragEnter}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
     >
+      {/* Speech bubble */}
+      {speechBubble && (
+        <div className="speech-bubble">
+          <span>{speechBubble}</span>
+        </div>
+      )}
+
       {/* Draggable pet area */}
-      <div className="drag-area" onMouseDown={handleMouseDown}>
+      <div
+        className={`drag-area${isFileDragOver ? ' file-drag-over' : ''}`}
+        onMouseDown={handleMouseDown}
+        style={{ transform: `scale(${eatScale})`, transition: 'transform 0.15s ease' }}
+      >
         <PetSprite pet={selectedPet} action={currentAction} />
       </div>
 
@@ -231,21 +442,30 @@ function PetWindow() {
         />
       )}
 
-      {/* Toolbar (hover) */}
-      {showUI && (
-        <Toolbar
-          onToggleCommands={() => setCommandsOpen((v) => !v)}
-          onToggleChat={() => setChatOpen((v) => !v)}
-          commandsOpen={commandsOpen}
-          chatOpen={chatOpen}
+      {/* Mode Shortcut Toolbar (hover) */}
+      {showUI && modeConfig && (
+        <ModeShortcutToolbar
+          config={modeConfig}
+          activeModeId={activeModeId}
+          onModeChange={handleModeChange}
+          onShortcutClick={executeModeShortcut}
+          onOpenSettings={() => window.electronAPI?.openSettingsWindow?.()}
         />
       )}
 
       {/* Expandable panels */}
       <CommandPanel visible={commandsOpen} />
-      <ChatPanel visible={chatOpen} />
+      <ChatPanel ref={chatPanelRef} visible={chatOpen} />
       {/* Approval overlay */}
       <ApprovalPrompt prompt={approval} onResolve={handleResolveApproval} />
+
+      {/* Todo reminder */}
+      <TodoReminder
+        todo={todoReminder}
+        onDismiss={handleDismissReminder}
+        onOpen={handleOpenTodo}
+        onSnooze={handleSnoozeReminder}
+      />
 
       {/* Pet selector overlay */}
       {showSelector && (
@@ -273,6 +493,7 @@ export default function App() {
   if (route === '#/todo') return <TodoWindow />
   if (route === '#/diary') return <DiaryWindow />
   if (route === '#/stock') return <StockWindow />
+  if (route === '#/chat') return <ChatWindow />
 
   return <PetWindow />
 }

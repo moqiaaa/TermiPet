@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import type { PetMetadata, Settings, Command } from '../types/pet'
 import { PetSelector } from './PetSelector'
+import { ModeShortcutSettings } from './ModeShortcutSettings'
 
-type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'appearance'
+type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'shortcuts' | 'appearance'
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'about', label: '关于' },
@@ -10,6 +11,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'personality', label: '性格' },
   { key: 'model', label: '模型' },
   { key: 'commands', label: '命令' },
+  { key: 'shortcuts', label: '快捷栏' },
   { key: 'appearance', label: '外观' },
 ]
 
@@ -314,6 +316,12 @@ export function SettingsWindow() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === 'shortcuts' && (
+          <div className="settings-section">
+            <ModeShortcutSettings />
           </div>
         )}
 

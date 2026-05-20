@@ -16,7 +16,29 @@ const store = new Store({
     projects: [
       { id: 'inbox', name: '收件箱', color: '#d0d0d0', createdAt: 0 }
     ],
-    todos: []
+    todos: [],
+    modeShortcutConfig: {
+      activeModeId: 'assistant',
+      modes: [
+        { id: 'assistant', name: '助手', icon: '💬', color: '#7c6ef0', order: 0, enabled: true },
+        { id: 'todo', name: '待办', icon: '✅', color: '#29c487', order: 1, enabled: true },
+        { id: 'stock', name: '股票', icon: '📈', color: '#ef5d68', order: 2, enabled: true },
+        { id: 'diary', name: '日记', icon: '📝', color: '#e4a037', order: 3, enabled: true },
+        { id: 'commands', name: '命令', icon: '>_', color: '#7c6ef0', order: 4, enabled: true },
+      ],
+      shortcuts: [
+        { id: 'assistant-chat', modeId: 'assistant', label: '聊天', icon: '💬', actionType: 'toggleChat', order: 0, enabled: true },
+        { id: 'assistant-commands', modeId: 'assistant', label: '命令', icon: '📋', actionType: 'toggleCommands', order: 1, enabled: true },
+        { id: 'assistant-settings', modeId: 'assistant', label: '设置', icon: '⚙️', actionType: 'openSettingsWindow', order: 2, enabled: true },
+        { id: 'assistant-quit', modeId: 'assistant', label: '退出', icon: '❌', actionType: 'quit', order: 3, enabled: true },
+        { id: 'todo-open', modeId: 'todo', label: '待办', icon: '✅', actionType: 'openTodoWindow', order: 0, enabled: true },
+        { id: 'todo-add', modeId: 'todo', label: '新增待办', icon: '➕', actionType: 'addTodo', order: 1, enabled: true },
+        { id: 'todo-voice', modeId: 'todo', label: '语音录入', icon: '🎤', actionType: 'voiceTodo', order: 2, enabled: true },
+        { id: 'stock-open', modeId: 'stock', label: '股票', icon: '📈', actionType: 'openStockWindow', order: 0, enabled: true },
+        { id: 'diary-open', modeId: 'diary', label: '日记', icon: '📝', actionType: 'openDiaryWindow', order: 0, enabled: true },
+        { id: 'commands-panel', modeId: 'commands', label: '命令面板', icon: '📋', actionType: 'toggleCommands', order: 0, enabled: true },
+      ],
+    }
   }
 })
 
