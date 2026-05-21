@@ -33,6 +33,7 @@ export function StockWindow() {
     amount: '',
     reason: '',
     review: '',
+    correct: null as number | null,
   })
 
   // OCR modal
@@ -80,6 +81,7 @@ export function StockWindow() {
       amount: tradeForm.amount ? Number(tradeForm.amount) : null,
       reason: tradeForm.reason || null,
       review: tradeForm.review || null,
+      correct: tradeForm.correct,
     })
     setShowTradeForm(false)
     resetTradeForm()
@@ -104,6 +106,7 @@ export function StockWindow() {
       amount: t.amount ? String(t.amount) : '',
       reason: t.reason || '',
       review: t.review || '',
+      correct: t.correct ?? null,
     })
     setShowTradeForm(true)
   }
@@ -120,6 +123,7 @@ export function StockWindow() {
       amount: '',
       reason: '',
       review: '',
+      correct: null,
     })
   }
 
@@ -217,6 +221,7 @@ export function StockWindow() {
       amount: '',
       reason: '',
       review: '',
+      correct: null,
     })
     setShowOcrModal(false)
     setShowTradeForm(true)
@@ -267,6 +272,13 @@ export function StockWindow() {
               </div>
               <textarea value={tradeForm.reason} onChange={e => setTradeForm({ ...tradeForm, reason: e.target.value })} placeholder="买卖理由" rows={2} />
               <textarea value={tradeForm.review} onChange={e => setTradeForm({ ...tradeForm, review: e.target.value })} placeholder="复盘反思" rows={2} />
+              <div className="correct-toggle">
+                <span className="correct-label">操作评价</span>
+                <div className="direction-toggle">
+                  <button className={tradeForm.correct === 1 ? 'active correct-yes' : ''} onClick={() => setTradeForm({ ...tradeForm, correct: tradeForm.correct === 1 ? null : 1 })}>✓ 正确</button>
+                  <button className={tradeForm.correct === 0 ? 'active correct-no' : ''} onClick={() => setTradeForm({ ...tradeForm, correct: tradeForm.correct === 0 ? null : 0 })}>✗ 错误</button>
+                </div>
+              </div>
               <div className="trade-form-actions">
                 <button onClick={handleSaveTrade}>保存</button>
                 <button onClick={() => setShowTradeForm(false)}>取消</button>
@@ -283,18 +295,22 @@ export function StockWindow() {
                 <th>方向</th>
                 <th>价格</th>
                 <th>数量</th>
+                <th>评价</th>
+                <th>复盘</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {trades.map(t => (
                 <tr key={t.id}>
-                  <td>{t.trade_date instanceof Date ? t.trade_date.toISOString().slice(0, 10) : t.trade_date}</td>
+                  <td>{t.trade_date}</td>
                   <td>{t.stock_code}</td>
                   <td>{t.stock_name}</td>
                   <td className={t.direction === 1 ? 'buy' : 'sell'}>{t.direction === 1 ? '买入' : '卖出'}</td>
                   <td>{t.price}</td>
                   <td>{t.quantity}</td>
+                  <td className={t.correct === 1 ? 'correct-yes' : t.correct === 0 ? 'correct-no' : ''}>{t.correct === 1 ? '✓' : t.correct === 0 ? '✗' : '—'}</td>
+                  <td className="review-cell" title={t.review || ''}>{t.review || '—'}</td>
                   <td>
                     <button className="table-btn" onClick={() => handleEditTrade(t)}>编辑</button>
                     <button className="table-btn danger" onClick={() => handleDeleteTrade(t.id)}>删除</button>
@@ -302,7 +318,7 @@ export function StockWindow() {
                 </tr>
               ))}
               {trades.length === 0 && (
-                <tr><td colSpan={7} className="empty-row">暂无交易记录</td></tr>
+                <tr><td colSpan={9} className="empty-row">暂无交易记录</td></tr>
               )}
             </tbody>
           </table>

@@ -279,6 +279,8 @@ export interface ElectronAPI {
   // Commands
   getCommands: () => Promise<Command[]>
   saveCommands: (cmds: Command[]) => Promise<void>
+  saveCommand: (cmd: Command) => Promise<void>
+  deleteCommand: (id: string) => Promise<void>
   executeCommand: (text: string) => Promise<void>
 
   // Chat
@@ -344,6 +346,9 @@ export interface ElectronAPI {
   // Scenes
   getScenes: () => Promise<{ scenes: Scene[]; defaultSceneId: string }>
   saveScenes: (scenes: Scene[], defaultSceneId: string) => Promise<boolean>
+  saveScene: (scene: Scene) => Promise<void>
+  deleteScene: (id: string) => Promise<void>
+  setDefaultScene: (sceneId: string) => Promise<void>
 
   // Sub windows
   openTodoWindow: () => Promise<void>
@@ -373,6 +378,9 @@ export interface ElectronAPI {
   // Mode Shortcut
   getModeShortcutConfig: () => Promise<ModeShortcutConfig>
   saveModeShortcutConfig: (config: ModeShortcutConfig) => Promise<ModeShortcutConfig>
+  saveShortcutMode: (mode: ShortcutMode) => Promise<void>
+  saveShortcutItem: (item: ModeShortcut) => Promise<void>
+  deleteShortcutItem: (id: string) => Promise<void>
 
   // Misc
   onPetChanged: (callback: (petId: string) => void) => () => void
@@ -453,6 +461,7 @@ export type ShortcutActionType =
   | 'openStockWindow'
   | 'openSettingsWindow'
   | 'openRecordingWindow'
+  | 'openRecordingPanel'
   | 'executeCommand'
   | 'quit'
 

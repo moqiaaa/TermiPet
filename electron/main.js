@@ -1212,9 +1212,21 @@ function setupIPC() {
 
   ipcMain.handle('save-commands', async (_event, commands) => {
     const commandDB = require('./command-db')
-    await commandDB.saveCommands(commands)
+    for (const cmd of commands) await commandDB.saveCommand(cmd)
     commandsCache = await commandDB.getCommands()
     return true
+  })
+
+  ipcMain.handle('save-command', async (_event, cmd) => {
+    const commandDB = require('./command-db')
+    await commandDB.saveCommand(cmd)
+    commandsCache = await commandDB.getCommands()
+  })
+
+  ipcMain.handle('delete-command', async (_event, id) => {
+    const commandDB = require('./command-db')
+    await commandDB.deleteCommand(id)
+    commandsCache = await commandDB.getCommands()
   })
 
   ipcMain.handle('execute-command', async (_event, text) => {
@@ -1622,8 +1634,22 @@ function setupIPC() {
   ipcMain.handle('get-scenes', () => require('./scene-db').getScenes())
 
   ipcMain.handle('save-scenes', async (_event, scenes, defaultSceneId) => {
-    await require('./scene-db').saveScenes(scenes, defaultSceneId)
+    const sceneDB = require('./scene-db')
+    for (const s of scenes) await sceneDB.saveScene(s)
+    if (defaultSceneId !== undefined) await sceneDB.setDefaultSceneId(defaultSceneId)
     return true
+  })
+
+  ipcMain.handle('save-scene', async (_event, scene) => {
+    await require('./scene-db').saveScene(scene)
+  })
+
+  ipcMain.handle('delete-scene', async (_event, id) => {
+    await require('./scene-db').deleteScene(id)
+  })
+
+  ipcMain.handle('set-default-scene', async (_event, sceneId) => {
+    await require('./scene-db').setDefaultSceneId(sceneId)
   })
 
   // -- Summarize transcript (DashScope LLM) --
@@ -1669,6 +1695,9 @@ function setupIPC() {
   ipcMain.handle('get-mode-shortcut-config', () => require('./shortcut-db').getModeShortcutConfig())
 
   ipcMain.handle('save-mode-shortcut-config', (_event, config) => require('./shortcut-db').saveModeShortcutConfig(config))
+  ipcMain.handle('save-shortcut-mode', (_event, mode) => require('./shortcut-db').saveMode(mode))
+  ipcMain.handle('save-shortcut-item', (_event, item) => require('./shortcut-db').saveItem(item))
+  ipcMain.handle('delete-shortcut-item', (_event, id) => require('./shortcut-db').deleteItem(id))
 
   // -- Sub windows --
   ipcMain.handle('open-todo-window', () => { createTodoWindow(); return true })
@@ -2047,7 +2076,7 @@ app.whenReady().then(async () => {
   if (dbCmds.length === 0) {
     const filePath = getUserDataPath('commands.json')
     const fileCmds = fs.existsSync(filePath) ? readJSON(filePath, DEFAULT_COMMANDS) : DEFAULT_COMMANDS
-    await commandDB.saveCommands(fileCmds)
+    for (const cmd of fileCmds) await commandDB.saveCommand(cmd)
     commandsCache = await commandDB.getCommands()
   } else {
     commandsCache = dbCmds

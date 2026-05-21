@@ -10,6 +10,8 @@ const ACTION_TYPES: { value: ShortcutActionType; label: string; needsParam: bool
   { value: 'openDiaryWindow', label: '打开日记窗口', needsParam: false },
   { value: 'openStockWindow', label: '打开股票窗口', needsParam: false },
   { value: 'openSettingsWindow', label: '打开设置窗口', needsParam: false },
+  { value: 'openRecordingWindow', label: '开始/停止录音', needsParam: false },
+  { value: 'openRecordingPanel', label: '打开录音面板', needsParam: false },
   { value: 'executeCommand', label: '执行命令', needsParam: true },
   { value: 'quit', label: '退出应用', needsParam: false },
 ]
@@ -37,21 +39,19 @@ export function ModeShortcutSettings() {
     .filter((s) => s.modeId === selectedModeId)
     .sort((a, b) => a.order - b.order)
 
-  function saveConfig(updated: ModeShortcutConfig) {
-    setConfig(updated)
-    window.electronAPI?.saveModeShortcutConfig?.(updated)
+  function showSaved() {
     setSaveStatus('已保存')
     setTimeout(() => setSaveStatus(''), 1500)
   }
 
   function handleToggleMode(mode: ShortcutMode) {
-    const updated = {
+    const updated = { ...mode, enabled: !mode.enabled }
+    setConfig({
       ...config!,
-      modes: config!.modes.map((m) =>
-        m.id === mode.id ? { ...m, enabled: !m.enabled } : m
-      ),
-    }
-    saveConfig(updated)
+      modes: config!.modes.map((m) => m.id === mode.id ? updated : m),
+    })
+    window.electronAPI?.saveShortcutMode?.(updated)
+    showSaved()
   }
 
   function handleAddShortcut() {
@@ -68,31 +68,35 @@ export function ModeShortcutSettings() {
       order: maxOrder + 1,
       enabled: true,
     }
-    const updated = {
+    setConfig({
       ...config!,
       shortcuts: [...config!.shortcuts, newShortcut],
-    }
-    saveConfig(updated)
+    })
+    window.electronAPI?.saveShortcutItem?.(newShortcut)
     setEditingShortcut(newShortcut)
+    showSaved()
   }
 
   function handleDeleteShortcut(id: string) {
-    const updated = {
+    setConfig({
       ...config!,
       shortcuts: config!.shortcuts.filter((s) => s.id !== id),
-    }
-    saveConfig(updated)
+    })
+    window.electronAPI?.deleteShortcutItem?.(id)
     if (editingShortcut?.id === id) setEditingShortcut(null)
+    showSaved()
   }
 
   function handleToggleShortcut(id: string) {
-    const updated = {
+    const item = config!.shortcuts.find((s) => s.id === id)
+    if (!item) return
+    const updated = { ...item, enabled: !item.enabled }
+    setConfig({
       ...config!,
-      shortcuts: config!.shortcuts.map((s) =>
-        s.id === id ? { ...s, enabled: !s.enabled } : s
-      ),
-    }
-    saveConfig(updated)
+      shortcuts: config!.shortcuts.map((s) => s.id === id ? updated : s),
+    })
+    window.electronAPI?.saveShortcutItem?.(updated)
+    showSaved()
   }
 
   function handleMoveShortcut(id: string, dir: -1 | 1) {
@@ -101,13 +105,16 @@ export function ModeShortcutSettings() {
     if (idx < 0) return
     const targetIdx = idx + dir
     if (targetIdx < 0 || targetIdx >= sorted.length) return
-    const temp = sorted[idx].order
-    sorted[idx] = { ...sorted[idx], order: sorted[targetIdx].order }
-    sorted[targetIdx] = { ...sorted[targetIdx], order: temp }
-
+    const a = { ...sorted[idx], order: sorted[targetIdx].order }
+    const b = { ...sorted[targetIdx], order: sorted[idx].order }
     const otherShortcuts = config!.shortcuts.filter((s) => s.modeId !== selectedModeId)
-    const updated = { ...config!, shortcuts: [...otherShortcuts, ...sorted] }
-    saveConfig(updated)
+    const updatedSorted = [...sorted]
+    updatedSorted[idx] = a
+    updatedSorted[targetIdx] = b
+    setConfig({ ...config!, shortcuts: [...otherShortcuts, ...updatedSorted] })
+    window.electronAPI?.saveShortcutItem?.(a)
+    window.electronAPI?.saveShortcutItem?.(b)
+    showSaved()
   }
 
   function handleUpdateShortcut(field: string, value: string) {
@@ -122,13 +129,14 @@ export function ModeShortcutSettings() {
       updatedShortcut = { ...editingShortcut, [field]: value }
     }
     setEditingShortcut(updatedShortcut)
-    const updated = {
+    setConfig({
       ...config!,
       shortcuts: config!.shortcuts.map((s) =>
         s.id === updatedShortcut.id ? updatedShortcut : s
       ),
-    }
-    saveConfig(updated)
+    })
+    window.electronAPI?.saveShortcutItem?.(updatedShortcut)
+    showSaved()
   }
 
   const currentActionMeta = editingShortcut

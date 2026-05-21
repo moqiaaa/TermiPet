@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Commands
   getCommands: () => ipcRenderer.invoke('get-commands'),
   saveCommands: (commands) => ipcRenderer.invoke('save-commands', commands),
+  saveCommand: (cmd) => ipcRenderer.invoke('save-command', cmd),
+  deleteCommand: (id) => ipcRenderer.invoke('delete-command', id),
   executeCommand: (text) => ipcRenderer.invoke('execute-command', text),
 
   // Window
@@ -135,10 +137,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   summarizeTranscript: (transcript, prompt) => ipcRenderer.invoke('summarize-transcript', transcript, prompt),
   getScenes: () => ipcRenderer.invoke('get-scenes'),
   saveScenes: (scenes, defaultSceneId) => ipcRenderer.invoke('save-scenes', scenes, defaultSceneId),
+  saveScene: (scene) => ipcRenderer.invoke('save-scene', scene),
+  deleteScene: (id) => ipcRenderer.invoke('delete-scene', id),
+  setDefaultScene: (sceneId) => ipcRenderer.invoke('set-default-scene', sceneId),
 
   // Mode Shortcut Config
   getModeShortcutConfig: () => ipcRenderer.invoke('get-mode-shortcut-config'),
   saveModeShortcutConfig: (config) => ipcRenderer.invoke('save-mode-shortcut-config', config),
+  saveShortcutMode: (mode) => ipcRenderer.invoke('save-shortcut-mode', mode),
+  saveShortcutItem: (item) => ipcRenderer.invoke('save-shortcut-item', item),
+  deleteShortcutItem: (id) => ipcRenderer.invoke('delete-shortcut-item', id),
 
   // Sub windows
   openTodoWindow: () => ipcRenderer.invoke('open-todo-window'),

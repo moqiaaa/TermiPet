@@ -344,6 +344,9 @@ function PetWindow() {
           startPetRecording()
         }
         break
+      case 'openRecordingPanel':
+        window.electronAPI?.openRecordingWindow?.()
+        break
       case 'executeCommand':
         if (typeof shortcut.actionPayload?.command === 'string') {
           window.electronAPI?.executeCommand?.(shortcut.actionPayload.command)

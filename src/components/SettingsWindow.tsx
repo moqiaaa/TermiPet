@@ -87,6 +87,7 @@ export function SettingsWindow() {
   const [scenes, setScenes] = useState<Scene[]>([])
   const [defaultSceneId, setDefaultSceneId] = useState('')
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null)
+  const [draftScene, setDraftScene] = useState<Scene | null>(null)
   const [prompts, setPrompts] = useState<SystemPrompt[]>(DEFAULT_PROMPTS)
   const [editingPromptKey, setEditingPromptKey] = useState<string | null>(null)
 
@@ -145,23 +146,21 @@ export function SettingsWindow() {
       pinned: false,
       isCustom: true,
     }
-    const updated = [...commands, newCmd]
-    setCommands(updated)
-    window.electronAPI?.saveCommands?.(updated)
+    setCommands([...commands, newCmd])
+    window.electronAPI?.saveCommand?.(newCmd)
   }
 
   const handleDeleteCommand = (id: string) => {
-    const updated = commands.filter((c) => c.id !== id)
-    setCommands(updated)
-    window.electronAPI?.saveCommands?.(updated)
+    setCommands(commands.filter((c) => c.id !== id))
+    window.electronAPI?.deleteCommand?.(id)
   }
 
   const handleTogglePin = (id: string) => {
-    const updated = commands.map((c) =>
-      c.id === id ? { ...c, pinned: !c.pinned } : c
-    )
-    setCommands(updated)
-    window.electronAPI?.saveCommands?.(updated)
+    const cmd = commands.find((c) => c.id === id)
+    if (!cmd) return
+    const updated = { ...cmd, pinned: !cmd.pinned }
+    setCommands(commands.map((c) => c.id === id ? updated : c))
+    window.electronAPI?.saveCommand?.(updated)
   }
 
   const handleTestConnection = () => {
@@ -169,36 +168,43 @@ export function SettingsWindow() {
     setTimeout(() => setTestStatus('连接成功'), 1500)
   }
 
-  const saveScenes = (updated: Scene[], defId?: string) => {
-    setScenes(updated)
-    const did = defId ?? defaultSceneId
-    if (defId !== undefined) setDefaultSceneId(did)
-    window.electronAPI?.saveScenes?.(updated, did)
+  const handleAddScene = () => {
+    if (draftScene) return
+    const id = `scene-${Date.now().toString(36)}`
+    setDraftScene({ id, name: '', summaryPrompt: '', todoPrompt: '' })
+    setEditingSceneId(null)
   }
 
-  const handleAddScene = () => {
-    const id = `scene-${Date.now().toString(36)}`
-    const newScene: Scene = {
-      id,
-      name: '新场景',
-      summaryPrompt: '',
-      todoPrompt: '',
-    }
-    const updated = [...scenes, newScene]
-    saveScenes(updated)
-    setEditingSceneId(id)
+  const handleSaveDraft = () => {
+    if (!draftScene || !draftScene.name.trim()) return
+    const saved = { ...draftScene, name: draftScene.name.trim() }
+    setScenes([...scenes, saved])
+    window.electronAPI?.saveScene?.(saved)
+    setEditingSceneId(saved.id)
+    setDraftScene(null)
+  }
+
+  const handleCancelDraft = () => {
+    setDraftScene(null)
   }
 
   const handleDeleteScene = (id: string) => {
-    const updated = scenes.filter((s) => s.id !== id)
-    const newDefault = defaultSceneId === id ? (updated[0]?.id || '') : defaultSceneId
-    saveScenes(updated, newDefault)
+    setScenes(scenes.filter((s) => s.id !== id))
+    window.electronAPI?.deleteScene?.(id)
+    if (defaultSceneId === id) {
+      const newDefault = scenes.find((s) => s.id !== id)?.id || ''
+      setDefaultSceneId(newDefault)
+      window.electronAPI?.setDefaultScene?.(newDefault)
+    }
     if (editingSceneId === id) setEditingSceneId(null)
   }
 
   const handleUpdateScene = (id: string, field: keyof Scene, value: string) => {
-    const updated = scenes.map((s) => s.id === id ? { ...s, [field]: value } : s)
-    saveScenes(updated)
+    const scene = scenes.find((s) => s.id === id)
+    if (!scene) return
+    const updated = { ...scene, [field]: value }
+    setScenes(scenes.map((s) => s.id === id ? updated : s))
+    window.electronAPI?.saveScene?.(updated)
   }
 
   const savePrompts = (updated: SystemPrompt[]) => {
@@ -434,7 +440,7 @@ export function SettingsWindow() {
                 value={defaultSceneId}
                 onChange={(e) => {
                   setDefaultSceneId(e.target.value)
-                  window.electronAPI?.saveScenes?.(scenes, e.target.value)
+                  window.electronAPI?.setDefaultScene?.(e.target.value)
                 }}
               >
                 {scenes.map((s) => (
@@ -444,10 +450,14 @@ export function SettingsWindow() {
             </div>
             <div className="settings-field-header">
               <label>场景列表</label>
-              <button className="settings-btn-small" onClick={handleAddScene}>+ 添加</button>
+              <button
+                className="settings-btn-small"
+                onClick={handleAddScene}
+                disabled={!!draftScene}
+              >+ 添加</button>
             </div>
             <div className="settings-command-list">
-              {scenes.length === 0 && (
+              {scenes.length === 0 && !draftScene && (
                 <div className="settings-empty">暂无场景</div>
               )}
               {scenes.map((scene) => (
@@ -501,6 +511,51 @@ export function SettingsWindow() {
                   )}
                 </div>
               ))}
+              {draftScene && (
+                <div className="settings-scene-item">
+                  <div className="settings-scene-edit">
+                    <div className="settings-field">
+                      <label>场景名称</label>
+                      <input
+                        className="settings-input"
+                        placeholder="输入场景名称"
+                        value={draftScene.name}
+                        onChange={(e) => setDraftScene({ ...draftScene, name: e.target.value })}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="settings-field">
+                      <label>总结 Prompt</label>
+                      <textarea
+                        className="settings-textarea"
+                        value={draftScene.summaryPrompt}
+                        onChange={(e) => setDraftScene({ ...draftScene, summaryPrompt: e.target.value })}
+                        rows={3}
+                      />
+                    </div>
+                    <div className="settings-field">
+                      <label>待办提取 Prompt</label>
+                      <textarea
+                        className="settings-textarea"
+                        value={draftScene.todoPrompt}
+                        onChange={(e) => setDraftScene({ ...draftScene, todoPrompt: e.target.value })}
+                        rows={3}
+                      />
+                    </div>
+                    <div className="settings-scene-draft-actions">
+                      <button
+                        className="settings-btn-small"
+                        onClick={handleSaveDraft}
+                        disabled={!draftScene.name.trim()}
+                      >保存</button>
+                      <button
+                        className="settings-btn-small settings-btn-cancel"
+                        onClick={handleCancelDraft}
+                      >取消</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

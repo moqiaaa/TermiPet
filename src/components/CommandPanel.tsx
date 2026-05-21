@@ -30,9 +30,8 @@ export function CommandPanel({ visible }: CommandPanelProps) {
       pinned: false,
       isCustom: true,
     }
-    const updated = [...commands, newCmd]
-    setCommands(updated)
-    window.electronAPI?.saveCommands?.(updated)
+    setCommands([...commands, newCmd])
+    window.electronAPI?.saveCommand?.(newCmd)
   }
 
   if (!visible) return null

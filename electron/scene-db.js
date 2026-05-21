@@ -19,28 +19,29 @@ async function getScenes() {
   return { scenes, defaultSceneId }
 }
 
-async function saveScenes(scenes, defaultSceneId) {
-  // Replace all: delete existing, insert new
-  await query('DELETE FROM scene')
-
-  if (scenes && scenes.length > 0) {
-    for (const s of scenes) {
-      await query(
-        `INSERT INTO scene (id, name, summary_prompt, todo_prompt)
-         VALUES (?, ?, ?, ?)`,
-        [
-          s.id,
-          s.name,
-          s.summaryPrompt || null,
-          s.todoPrompt || null,
-        ]
-      )
-    }
-  }
-
-  if (defaultSceneId !== undefined) {
-    await setConfig('defaultSceneId', defaultSceneId)
-  }
+async function saveScene(scene) {
+  await query(
+    `INSERT INTO scene (id, name, summary_prompt, todo_prompt)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       name = VALUES(name),
+       summary_prompt = VALUES(summary_prompt),
+       todo_prompt = VALUES(todo_prompt)`,
+    [
+      scene.id,
+      scene.name,
+      scene.summaryPrompt || null,
+      scene.todoPrompt || null,
+    ]
+  )
 }
 
-module.exports = { getScenes, saveScenes }
+async function deleteScene(id) {
+  await query('DELETE FROM scene WHERE id = ?', [id])
+}
+
+async function setDefaultSceneId(sceneId) {
+  await setConfig('defaultSceneId', sceneId)
+}
+
+module.exports = { getScenes, saveScene, deleteScene, setDefaultSceneId }

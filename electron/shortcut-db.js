@@ -121,30 +121,36 @@ async function getModeShortcutConfig() {
 }
 
 async function saveModeShortcutConfig(config) {
-  // Delete all existing data
-  await query('DELETE FROM shortcut_item')
-  await query('DELETE FROM shortcut_mode')
-
-  // Insert modes
   if (config.modes && config.modes.length > 0) {
+    const incomingModeIds = config.modes.map(m => m.id)
     for (const mode of config.modes) {
       await saveMode(mode)
     }
-  }
-
-  // Insert shortcuts
-  if (config.shortcuts && config.shortcuts.length > 0) {
-    for (const item of config.shortcuts) {
-      await saveItem(item)
+    const existing = await getModes()
+    for (const m of existing) {
+      if (!incomingModeIds.includes(m.id)) {
+        await deleteMode(m.id)
+      }
     }
   }
 
-  // Save activeModeId
+  if (config.shortcuts && config.shortcuts.length > 0) {
+    const incomingItemIds = config.shortcuts.map(s => s.id)
+    for (const item of config.shortcuts) {
+      await saveItem(item)
+    }
+    const existing = await getItems()
+    for (const s of existing) {
+      if (!incomingItemIds.includes(s.id)) {
+        await deleteItem(s.id)
+      }
+    }
+  }
+
   if (config.activeModeId !== undefined) {
     await setConfig('activeModeId', config.activeModeId)
   }
 
-  // Return the saved config for frontend confirmation
   return getModeShortcutConfig()
 }
 

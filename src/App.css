@@ -1603,6 +1603,22 @@ input:focus, textarea:focus, select:focus {
   margin-bottom: 0;
 }
 
+.settings-scene-draft-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.settings-btn-cancel {
+  color: var(--text-secondary);
+}
+
+.settings-btn-small:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ===== Sub Window (shared layout for Todo/Diary/Stock) ===== */
 .sub-window {
   width: 100%;
@@ -3391,6 +3407,47 @@ input:focus, textarea:focus, select:focus {
 .direction-toggle button.active.sell {
   background: rgba(34, 197, 94, 0.15);
   color: #22c55e;
+}
+
+.direction-toggle button.active.correct-yes {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.direction-toggle button.active.correct-no {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.correct-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+}
+
+.correct-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+td.correct-yes {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+td.correct-no {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.review-cell {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 /* Stock table */
