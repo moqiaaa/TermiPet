@@ -3,7 +3,7 @@ import type { PetMetadata, Settings, Command, Scene } from '../types/pet'
 import { PetSelector } from './PetSelector'
 import { ModeShortcutSettings } from './ModeShortcutSettings'
 
-type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'shortcuts' | 'recording' | 'appearance'
+type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'shortcuts' | 'recording' | 'prompts' | 'appearance'
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'about', label: '关于' },
@@ -13,7 +13,22 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'commands', label: '命令' },
   { key: 'shortcuts', label: '快捷栏' },
   { key: 'recording', label: '录音' },
+  { key: 'prompts', label: '提示词' },
   { key: 'appearance', label: '外观' },
+]
+
+interface SystemPrompt {
+  key: string
+  name: string
+  prompt: string
+}
+
+const DEFAULT_PROMPTS: SystemPrompt[] = [
+  {
+    key: 'ocr_trade',
+    name: 'OCR 交易识别',
+    prompt: '你是一个股票交易截图识别助手。从截图中提取交易信息，返回 JSON 格式，字段包括：stock_name(证券名称), stock_code(证券代码), direction(买卖方向，买入=1，卖出=2), price(成交价格，数字), quantity(成交数量，数字), trade_time(成交时间)。只返回 JSON，不要其他文字。',
+  },
 ]
 
 const PERSONALITIES = [
@@ -72,6 +87,8 @@ export function SettingsWindow() {
   const [scenes, setScenes] = useState<Scene[]>([])
   const [defaultSceneId, setDefaultSceneId] = useState('')
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null)
+  const [prompts, setPrompts] = useState<SystemPrompt[]>(DEFAULT_PROMPTS)
+  const [editingPromptKey, setEditingPromptKey] = useState<string | null>(null)
 
   useEffect(() => {
     window.electronAPI?.getSettings?.().then((s) => {
@@ -85,6 +102,16 @@ export function SettingsWindow() {
       if (data) {
         setScenes(data.scenes)
         setDefaultSceneId(data.defaultSceneId)
+      }
+    }).catch(() => {})
+    window.electronAPI?.storeGet?.('system_prompts').then((stored) => {
+      if (Array.isArray(stored) && stored.length > 0) {
+        const merged = DEFAULT_PROMPTS.map(dp => {
+          const found = (stored as SystemPrompt[]).find(s => s.key === dp.key)
+          return found ? { ...dp, prompt: found.prompt } : dp
+        })
+        const custom = (stored as SystemPrompt[]).filter(s => !DEFAULT_PROMPTS.some(dp => dp.key === s.key))
+        setPrompts([...merged, ...custom])
       }
     }).catch(() => {})
   }, [])
@@ -172,6 +199,38 @@ export function SettingsWindow() {
   const handleUpdateScene = (id: string, field: keyof Scene, value: string) => {
     const updated = scenes.map((s) => s.id === id ? { ...s, [field]: value } : s)
     saveScenes(updated)
+  }
+
+  const savePrompts = (updated: SystemPrompt[]) => {
+    setPrompts(updated)
+    window.electronAPI?.storeSet?.('system_prompts', updated)
+  }
+
+  const handleUpdatePrompt = (key: string, prompt: string) => {
+    const updated = prompts.map(p => p.key === key ? { ...p, prompt } : p)
+    savePrompts(updated)
+  }
+
+  const handleAddPrompt = () => {
+    const name = window.prompt('提示词名称：')
+    if (!name) return
+    const key = `custom_${Date.now().toString(36)}`
+    const updated = [...prompts, { key, name, prompt: '' }]
+    savePrompts(updated)
+    setEditingPromptKey(key)
+  }
+
+  const handleDeletePrompt = (key: string) => {
+    if (DEFAULT_PROMPTS.some(p => p.key === key)) return
+    const updated = prompts.filter(p => p.key !== key)
+    savePrompts(updated)
+    if (editingPromptKey === key) setEditingPromptKey(null)
+  }
+
+  const handleResetPrompt = (key: string) => {
+    const defaultPrompt = DEFAULT_PROMPTS.find(p => p.key === key)
+    if (!defaultPrompt) return
+    handleUpdatePrompt(key, defaultPrompt.prompt)
   }
 
   return (
@@ -438,6 +497,60 @@ export function SettingsWindow() {
                           rows={3}
                         />
                       </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'prompts' && (
+          <div className="settings-section">
+            <div className="settings-field-header">
+              <label>系统提示词</label>
+              <button className="settings-btn-small" onClick={handleAddPrompt}>+ 添加</button>
+            </div>
+            <p className="settings-hint">管理各功能模块的系统提示词，点击展开编辑</p>
+            <div className="settings-command-list">
+              {prompts.map((p) => (
+                <div key={p.key} className="settings-scene-item">
+                  <div
+                    className="settings-scene-header"
+                    onClick={() => setEditingPromptKey(editingPromptKey === p.key ? null : p.key)}
+                  >
+                    <span className="settings-scene-name">
+                      {DEFAULT_PROMPTS.some(dp => dp.key === p.key) && <span className="settings-scene-default">内置</span>}
+                      {p.name}
+                    </span>
+                    <div className="settings-scene-actions">
+                      {!DEFAULT_PROMPTS.some(dp => dp.key === p.key) && (
+                        <button
+                          className="settings-delete-btn"
+                          onClick={(e) => { e.stopPropagation(); handleDeletePrompt(p.key) }}
+                          title="删除"
+                        >🗑</button>
+                      )}
+                      <span className="settings-scene-arrow">{editingPromptKey === p.key ? '▾' : '▸'}</span>
+                    </div>
+                  </div>
+                  {editingPromptKey === p.key && (
+                    <div className="settings-scene-edit">
+                      <div className="settings-field">
+                        <label>提示词内容</label>
+                        <textarea
+                          className="settings-textarea"
+                          value={p.prompt}
+                          onChange={(e) => handleUpdatePrompt(p.key, e.target.value)}
+                          rows={6}
+                          placeholder="输入系统提示词..."
+                        />
+                      </div>
+                      {DEFAULT_PROMPTS.some(dp => dp.key === p.key) && (
+                        <button className="settings-btn-small" onClick={() => handleResetPrompt(p.key)}>
+                          恢复默认
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -1318,19 +1318,27 @@ function setupIPC() {
   // -- Stock OCR --
   ipcMain.handle('ocr-trade', async (_event, imageBase64) => {
     try {
-      const alicloud = await configDB.getConfig('alicloud')
+      const { getConfig } = require('./config-db')
+      const alicloud = await getConfig('alicloud')
       const settings = loadSettings()
       const apiKey = settings.apiKeys?.custom || alicloud?.chatKey
       const endpoint = settings.apiKeys?.custom_endpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
       if (!apiKey) return { error: '未配置 API Key' }
 
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+
+      const defaultOcrPrompt = '你是一个股票交易截图识别助手。从截图中提取交易信息，返回 JSON 格式，字段包括：stock_name(证券名称), stock_code(证券代码), direction(买卖方向，买入=1，卖出=2), price(成交价格，数字), quantity(成交数量，数字), trade_time(成交时间)。只返回 JSON，不要其他文字。'
+      const storedPrompts = await getConfig('system_prompts')
+      const ocrPrompt = Array.isArray(storedPrompts)
+        ? (storedPrompts.find(p => p.key === 'ocr_trade')?.prompt || defaultOcrPrompt)
+        : defaultOcrPrompt
+
       const body = JSON.stringify({
         model: 'qwen-vl-max',
         messages: [
           {
             role: 'system',
-            content: '你是一个股票交易截图识别助手。从截图中提取交易信息，返回 JSON 格式，字段包括：stock_name(证券名称), stock_code(证券代码), direction(买卖方向，买入=1，卖出=2), price(成交价格，数字), quantity(成交数量，数字), trade_time(成交时间)。只返回 JSON，不要其他文字。'
+            content: ocrPrompt
           },
           {
             role: 'user',
@@ -1386,13 +1394,15 @@ function setupIPC() {
         const screenshotWin = new BrowserWindow({
           x: primaryDisplay.bounds.x,
           y: primaryDisplay.bounds.y,
-          width,
-          height,
-          fullscreen: true,
+          width: primaryDisplay.bounds.width,
+          height: primaryDisplay.bounds.height,
           frame: false,
-          transparent: false,
           alwaysOnTop: true,
           skipTaskbar: true,
+          resizable: false,
+          movable: false,
+          minimizable: false,
+          maximizable: false,
           webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -1400,6 +1410,7 @@ function setupIPC() {
         })
 
         screenshotWin.setMenu(null)
+        screenshotWin.setFullScreen(true)
         screenshotWin.loadFile(path.join(__dirname, 'screenshot.html'))
 
         screenshotWin.webContents.on('did-finish-load', () => {

@@ -5,7 +5,7 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; cursor: crosshair; user-select: none; }
-canvas { position: absolute; top: 0; left: 0; }
+canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 .toolbar {
   display: none;
   position: absolute;
@@ -46,11 +46,22 @@ const img = new Image()
 let startX, startY, endX, endY
 let isDrawing = false
 let hasSelection = false
+let scaleX = 1, scaleY = 1
+
+function cssToCanvas(clientX, clientY) {
+  return [clientX * scaleX, clientY * scaleY]
+}
+
+function canvasToCss(cx, cy) {
+  return [cx / scaleX, cy / scaleY]
+}
 
 ipcRenderer.on('screenshot-data', (_e, dataUrl) => {
   img.onload = () => {
     canvas.width = img.width
     canvas.height = img.height
+    scaleX = img.width / window.innerWidth
+    scaleY = img.height / window.innerHeight
     drawOverlay()
   }
   img.src = dataUrl
@@ -69,14 +80,13 @@ function drawOverlay() {
     ctx.clearRect(x, y, w, h)
     ctx.drawImage(img, x, y, w, h, x, y, w, h)
     ctx.strokeStyle = '#7c6ef0'
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2 * scaleX
     ctx.strokeRect(x, y, w, h)
   }
 }
 
 canvas.addEventListener('mousedown', (e) => {
-  startX = e.clientX * window.devicePixelRatio
-  startY = e.clientY * window.devicePixelRatio
+  ;[startX, startY] = cssToCanvas(e.clientX, e.clientY)
   isDrawing = true
   hasSelection = false
   toolbar.style.display = 'none'
@@ -84,8 +94,7 @@ canvas.addEventListener('mousedown', (e) => {
 
 canvas.addEventListener('mousemove', (e) => {
   if (!isDrawing) return
-  endX = e.clientX * window.devicePixelRatio
-  endY = e.clientY * window.devicePixelRatio
+  ;[endX, endY] = cssToCanvas(e.clientX, e.clientY)
   hasSelection = true
   drawOverlay()
 })
@@ -93,8 +102,7 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseup', (e) => {
   if (!isDrawing) return
   isDrawing = false
-  endX = e.clientX * window.devicePixelRatio
-  endY = e.clientY * window.devicePixelRatio
+  ;[endX, endY] = cssToCanvas(e.clientX, e.clientY)
 
   const w = Math.abs(endX - startX)
   const h = Math.abs(endY - startY)
@@ -108,9 +116,11 @@ canvas.addEventListener('mouseup', (e) => {
 
   const bx = Math.min(startX, endX)
   const by = Math.min(startY, endY)
+  const [cssX, cssY] = canvasToCss(bx, by)
+  const [cssW, cssH] = canvasToCss(w, h)
   toolbar.style.display = 'flex'
-  toolbar.style.left = Math.min(bx / window.devicePixelRatio + w / window.devicePixelRatio - toolbar.offsetWidth, window.innerWidth - toolbar.offsetWidth - 8) + 'px'
-  toolbar.style.top = Math.min(by / window.devicePixelRatio + h / window.devicePixelRatio + 8, window.innerHeight - toolbar.offsetHeight - 8) + 'px'
+  toolbar.style.left = Math.min(cssX + cssW - toolbar.offsetWidth, window.innerWidth - toolbar.offsetWidth - 8) + 'px'
+  toolbar.style.top = Math.min(cssY + cssH + 8, window.innerHeight - toolbar.offsetHeight - 8) + 'px'
 })
 
 document.getElementById('btnCancel').addEventListener('click', () => {

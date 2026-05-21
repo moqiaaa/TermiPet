@@ -289,7 +289,7 @@ export function StockWindow() {
             <tbody>
               {trades.map(t => (
                 <tr key={t.id}>
-                  <td>{t.trade_date}</td>
+                  <td>{t.trade_date instanceof Date ? t.trade_date.toISOString().slice(0, 10) : t.trade_date}</td>
                   <td>{t.stock_code}</td>
                   <td>{t.stock_name}</td>
                   <td className={t.direction === 1 ? 'buy' : 'sell'}>{t.direction === 1 ? '买入' : '卖出'}</td>
