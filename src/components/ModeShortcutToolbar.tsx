@@ -1,22 +1,22 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ModeShortcutConfig, ModeShortcut, ShortcutModeId } from '../types/pet'
 
+const FIXED_ACTION_TYPES: Set<string> = new Set(['openSettingsWindow', 'quit'])
+
 interface ModeShortcutToolbarProps {
   config: ModeShortcutConfig
   activeModeId: ShortcutModeId
   onModeChange: (modeId: ShortcutModeId) => void
   onShortcutClick: (shortcut: ModeShortcut) => void
-  onOpenSettings: () => void
 }
 
-const MAX_VISIBLE_SHORTCUTS = 4
+const MAX_VISIBLE_SHORTCUTS = 3
 
 export function ModeShortcutToolbar({
   config,
   activeModeId,
   onModeChange,
   onShortcutClick,
-  onOpenSettings,
 }: ModeShortcutToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -27,7 +27,7 @@ export function ModeShortcutToolbar({
     || config.modes.find((m) => m.enabled)
 
   const modeShortcuts = config.shortcuts
-    .filter((s) => s.modeId === activeModeId && s.enabled)
+    .filter((s) => s.modeId === activeModeId && s.enabled && !FIXED_ACTION_TYPES.has(s.actionType))
     .sort((a, b) => a.order - b.order)
 
   const visibleShortcuts = modeShortcuts.slice(0, MAX_VISIBLE_SHORTCUTS)
@@ -129,13 +129,22 @@ export function ModeShortcutToolbar({
         )}
       </div>
 
-      <button
-        className="shortcut-btn shortcut-settings-btn"
-        onClick={onOpenSettings}
-        title="设置"
-      >
-        ⚙️
-      </button>
+      <div className="shortcut-fixed-btns">
+        <button
+          className="shortcut-btn"
+          onClick={() => window.electronAPI?.openSettingsWindow?.()}
+          title="设置"
+        >
+          ⚙️
+        </button>
+        <button
+          className="shortcut-btn shortcut-quit-btn"
+          onClick={() => window.electronAPI?.quit?.()}
+          title="退出"
+        >
+          ✖
+        </button>
+      </div>
     </div>
   )
 }

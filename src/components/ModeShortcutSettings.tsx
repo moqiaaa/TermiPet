@@ -18,6 +18,7 @@ export function ModeShortcutSettings() {
   const [config, setConfig] = useState<ModeShortcutConfig | null>(null)
   const [selectedModeId, setSelectedModeId] = useState<ShortcutModeId>('')
   const [editingShortcut, setEditingShortcut] = useState<ModeShortcut | null>(null)
+  const [saveStatus, setSaveStatus] = useState<string>('')
 
   useEffect(() => {
     window.electronAPI?.getModeShortcutConfig?.().then((c) => {
@@ -39,6 +40,8 @@ export function ModeShortcutSettings() {
   function saveConfig(updated: ModeShortcutConfig) {
     setConfig(updated)
     window.electronAPI?.saveModeShortcutConfig?.(updated)
+    setSaveStatus('已保存')
+    setTimeout(() => setSaveStatus(''), 1500)
   }
 
   function handleToggleMode(mode: ShortcutMode) {
@@ -263,6 +266,10 @@ export function ModeShortcutSettings() {
             </div>
           )}
         </div>
+      )}
+
+      {saveStatus && (
+        <div className="mss-save-status">{saveStatus}</div>
       )}
     </div>
   )

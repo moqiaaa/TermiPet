@@ -151,6 +151,7 @@ export interface Todo {
   completedAt?: number
   updatedAt?: number
   subtasks?: TodoSubtask[]
+  tags?: string[]
 }
 
 export interface TodoSubtask {
@@ -262,6 +263,7 @@ export interface ElectronAPI {
 
   // Window
   setWindowSize: (w: number, h: number, animate?: boolean) => Promise<void>
+  setIgnoreMouse: (ignore: boolean) => Promise<void>
 
   // Walking
   toggleWalk: () => Promise<string>
@@ -327,6 +329,8 @@ export interface ElectronAPI {
   getIndicators: (stockCode: string) => Promise<StockIndicator[]>
   saveIndicator: (ind: Partial<StockIndicator>) => Promise<StockIndicator | null>
   deleteIndicator: (id: number) => Promise<boolean>
+  ocrTrade: (imageBase64: string) => Promise<{ data?: Record<string, unknown>; error?: string }>
+  captureScreen: () => Promise<{ data?: string; cancelled?: boolean; error?: string }>
 
   // Todo reminder
   onTodoReminder: (callback: (todo: Todo) => void) => () => void
@@ -350,6 +354,14 @@ export interface ElectronAPI {
   openDiaryWindow: () => Promise<void>
   openStockWindow: () => Promise<void>
   openRecordingWindow: () => Promise<void>
+  processPetRecording: (audioBase64: string, duration: number) => Promise<{ success?: boolean; error?: string }>
+  getRecordingResults: () => Promise<RecordingResults | null>
+  openRecordingResults: () => Promise<void>
+  getRecordings: (limit?: number, offset?: number) => Promise<RecordingHistoryItem[]>
+  getRecordingById: (id: number) => Promise<RecordingHistoryItem | null>
+  deleteRecording: (id: number) => Promise<boolean>
+  getRecordingAudio: (audioPath: string) => Promise<string | null>
+  onRecordingProgress: (callback: (phase: string) => void) => () => void
   openChatWindow: () => Promise<void>
   openChatWindowWithMessage: (payload: ChatMessagePayload) => Promise<void>
   getPendingChatMessage: () => Promise<ChatMessagePayload | null>
@@ -389,6 +401,27 @@ export interface RecordingResult {
   audioBase64: string
   audioDuration: number
   sceneId: string
+}
+
+export interface RecordingResults {
+  id?: number
+  rawText: string
+  summary: string
+  todoSummary: string
+  sceneName: string
+  audioPath?: string
+  duration?: number
+}
+
+export interface RecordingHistoryItem {
+  id: number
+  sceneName: string
+  rawText: string
+  summary: string
+  todoSummary: string
+  audioPath: string
+  duration: number
+  createdAt: number
 }
 
 // --- Mode Shortcut Toolbar ---

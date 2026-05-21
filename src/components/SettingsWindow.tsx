@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import type { PetMetadata, Settings, Command } from '../types/pet'
+import type { PetMetadata, Settings, Command, Scene } from '../types/pet'
 import { PetSelector } from './PetSelector'
 import { ModeShortcutSettings } from './ModeShortcutSettings'
 
-type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'shortcuts' | 'appearance'
+type SettingsTab = 'about' | 'pet' | 'personality' | 'model' | 'commands' | 'shortcuts' | 'recording' | 'appearance'
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'about', label: '关于' },
@@ -12,6 +12,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'model', label: '模型' },
   { key: 'commands', label: '命令' },
   { key: 'shortcuts', label: '快捷栏' },
+  { key: 'recording', label: '录音' },
   { key: 'appearance', label: '外观' },
 ]
 
@@ -68,6 +69,9 @@ export function SettingsWindow() {
   const [commands, setCommands] = useState<Command[]>([])
   const [showPetSelector, setShowPetSelector] = useState(false)
   const [testStatus, setTestStatus] = useState('')
+  const [scenes, setScenes] = useState<Scene[]>([])
+  const [defaultSceneId, setDefaultSceneId] = useState('')
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null)
 
   useEffect(() => {
     window.electronAPI?.getSettings?.().then((s) => {
@@ -77,6 +81,12 @@ export function SettingsWindow() {
     window.electronAPI?.getPets?.().then(setPets).catch(() => {})
     window.electronAPI?.getSelectedPet?.().then(setSelectedPetId).catch(() => {})
     window.electronAPI?.getCommands?.().then(setCommands).catch(() => {})
+    window.electronAPI?.getScenes?.().then((data) => {
+      if (data) {
+        setScenes(data.scenes)
+        setDefaultSceneId(data.defaultSceneId)
+      }
+    }).catch(() => {})
   }, [])
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -129,8 +139,39 @@ export function SettingsWindow() {
 
   const handleTestConnection = () => {
     setTestStatus('测试中……')
-    // Simulate test - in real implementation this would call electronAPI
     setTimeout(() => setTestStatus('连接成功'), 1500)
+  }
+
+  const saveScenes = (updated: Scene[], defId?: string) => {
+    setScenes(updated)
+    const did = defId ?? defaultSceneId
+    if (defId !== undefined) setDefaultSceneId(did)
+    window.electronAPI?.saveScenes?.(updated, did)
+  }
+
+  const handleAddScene = () => {
+    const id = `scene-${Date.now().toString(36)}`
+    const newScene: Scene = {
+      id,
+      name: '新场景',
+      summaryPrompt: '',
+      todoPrompt: '',
+    }
+    const updated = [...scenes, newScene]
+    saveScenes(updated)
+    setEditingSceneId(id)
+  }
+
+  const handleDeleteScene = (id: string) => {
+    const updated = scenes.filter((s) => s.id !== id)
+    const newDefault = defaultSceneId === id ? (updated[0]?.id || '') : defaultSceneId
+    saveScenes(updated, newDefault)
+    if (editingSceneId === id) setEditingSceneId(null)
+  }
+
+  const handleUpdateScene = (id: string, field: keyof Scene, value: string) => {
+    const updated = scenes.map((s) => s.id === id ? { ...s, [field]: value } : s)
+    saveScenes(updated)
   }
 
   return (
@@ -322,6 +363,86 @@ export function SettingsWindow() {
         {tab === 'shortcuts' && (
           <div className="settings-section">
             <ModeShortcutSettings />
+          </div>
+        )}
+
+        {tab === 'recording' && (
+          <div className="settings-section">
+            <div className="settings-field">
+              <label>默认场景</label>
+              <select
+                className="settings-select"
+                value={defaultSceneId}
+                onChange={(e) => {
+                  setDefaultSceneId(e.target.value)
+                  window.electronAPI?.saveScenes?.(scenes, e.target.value)
+                }}
+              >
+                {scenes.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-field-header">
+              <label>场景列表</label>
+              <button className="settings-btn-small" onClick={handleAddScene}>+ 添加</button>
+            </div>
+            <div className="settings-command-list">
+              {scenes.length === 0 && (
+                <div className="settings-empty">暂无场景</div>
+              )}
+              {scenes.map((scene) => (
+                <div key={scene.id} className="settings-scene-item">
+                  <div
+                    className="settings-scene-header"
+                    onClick={() => setEditingSceneId(editingSceneId === scene.id ? null : scene.id)}
+                  >
+                    <span className="settings-scene-name">
+                      {defaultSceneId === scene.id && <span className="settings-scene-default">默认</span>}
+                      {scene.name}
+                    </span>
+                    <div className="settings-scene-actions">
+                      <button
+                        className="settings-delete-btn"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteScene(scene.id) }}
+                        title="删除"
+                      >🗑</button>
+                      <span className="settings-scene-arrow">{editingSceneId === scene.id ? '▾' : '▸'}</span>
+                    </div>
+                  </div>
+                  {editingSceneId === scene.id && (
+                    <div className="settings-scene-edit">
+                      <div className="settings-field">
+                        <label>场景名称</label>
+                        <input
+                          className="settings-input"
+                          value={scene.name}
+                          onChange={(e) => handleUpdateScene(scene.id, 'name', e.target.value)}
+                        />
+                      </div>
+                      <div className="settings-field">
+                        <label>总结 Prompt</label>
+                        <textarea
+                          className="settings-textarea"
+                          value={scene.summaryPrompt}
+                          onChange={(e) => handleUpdateScene(scene.id, 'summaryPrompt', e.target.value)}
+                          rows={3}
+                        />
+                      </div>
+                      <div className="settings-field">
+                        <label>待办提取 Prompt</label>
+                        <textarea
+                          className="settings-textarea"
+                          value={scene.todoPrompt}
+                          onChange={(e) => handleUpdateScene(scene.id, 'todoPrompt', e.target.value)}
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

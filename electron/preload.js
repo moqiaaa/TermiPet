@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Window
   setWindowSize: (w, h, animate) => ipcRenderer.invoke('set-window-size', w, h, animate),
+  setIgnoreMouse: (ignore) => ipcRenderer.invoke('set-ignore-mouse', ignore),
 
   // Walking
   toggleWalk: () => ipcRenderer.invoke('toggle-walk'),
@@ -117,6 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getIndicators: (stockCode) => ipcRenderer.invoke('get-indicators', stockCode),
   saveIndicator: (ind) => ipcRenderer.invoke('save-indicator', ind),
   deleteIndicator: (id) => ipcRenderer.invoke('delete-indicator', id),
+  ocrTrade: (imageBase64) => ipcRenderer.invoke('ocr-trade', imageBase64),
+  captureScreen: () => ipcRenderer.invoke('capture-screen'),
 
   // Todo reminder
   onTodoReminder: (cb) => {
@@ -127,8 +130,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dismissTodoReminder: (id) => ipcRenderer.invoke('dismiss-todo-reminder', id),
   snoozeTodoReminder: (id, minutes) => ipcRenderer.invoke('snooze-todo-reminder', id, minutes),
 
-  // Speech
+  // Speech / Recording
   transcribeAudio: (audioBase64) => ipcRenderer.invoke('transcribe-audio', audioBase64),
+  summarizeTranscript: (transcript, prompt) => ipcRenderer.invoke('summarize-transcript', transcript, prompt),
+  getScenes: () => ipcRenderer.invoke('get-scenes'),
+  saveScenes: (scenes, defaultSceneId) => ipcRenderer.invoke('save-scenes', scenes, defaultSceneId),
 
   // Mode Shortcut Config
   getModeShortcutConfig: () => ipcRenderer.invoke('get-mode-shortcut-config'),
@@ -150,6 +156,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   openDiaryWindow: () => ipcRenderer.invoke('open-diary-window'),
   openStockWindow: () => ipcRenderer.invoke('open-stock-window'),
+  openRecordingWindow: () => ipcRenderer.invoke('open-recording-window'),
+  processPetRecording: (audioBase64, duration) => ipcRenderer.invoke('process-pet-recording', audioBase64, duration),
+  getRecordingResults: () => ipcRenderer.invoke('get-recording-results'),
+  openRecordingResults: () => ipcRenderer.invoke('open-recording-results'),
+  getRecordings: (limit, offset) => ipcRenderer.invoke('get-recordings', limit, offset),
+  getRecordingById: (id) => ipcRenderer.invoke('get-recording-by-id', id),
+  deleteRecording: (id) => ipcRenderer.invoke('delete-recording', id),
+  getRecordingAudio: (audioPath) => ipcRenderer.invoke('get-recording-audio', audioPath),
+  onRecordingProgress: (cb) => {
+    const handler = (_event, phase) => cb(phase)
+    ipcRenderer.on('recording-progress', handler)
+    return () => ipcRenderer.removeListener('recording-progress', handler)
+  },
   openChatWindow: () => ipcRenderer.invoke('open-chat-window'),
   openChatWindowWithMessage: (payload) => ipcRenderer.invoke('open-chat-window-with-message', payload),
   getPendingChatMessage: () => ipcRenderer.invoke('get-pending-chat-message'),

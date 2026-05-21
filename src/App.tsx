@@ -15,6 +15,8 @@ import { TodoWindow } from './components/TodoWindow'
 import { DiaryWindow } from './components/DiaryWindow'
 import { StockWindow } from './components/StockWindow'
 import { ChatWindow } from './components/ChatWindow'
+import { RecordingWindow } from './components/RecordingWindow'
+import { RecordingIndicator } from './components/RecordingIndicator'
 import type {
   PetMetadata,
   ClaudeState,
@@ -73,6 +75,15 @@ function PetWindow() {
 
   // --- Todo reminder ---
   const [todoReminder, setTodoReminder] = useState<Todo | null>(null)
+
+  // --- Pet recording ---
+  const [recPhase, setRecPhase] = useState<'idle' | 'recording' | 'transcribing' | 'summarizing' | 'done' | 'error'>('idle')
+  const [recTime, setRecTime] = useState(0)
+  const [recError, setRecError] = useState('')
+  const recTimeRef = useRef(0)
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recMediaRef = useRef<MediaRecorder | null>(null)
+  const recChunksRef = useRef<Blob[]>([])
 
   // --- Walking ---
   const [walkPhase, setWalkPhase] = useState<string>('idle')
@@ -160,6 +171,16 @@ function PetWindow() {
       setWalkDirection(state.direction)
     })
 
+    // Recording progress from main process
+    const cleanupRecProgress = api.onRecordingProgress?.((phase: string) => {
+      if (phase === 'done') {
+        setRecPhase('idle')
+        window.electronAPI?.openRecordingResults?.()
+      } else if (phase === 'transcribing' || phase === 'summarizing' || phase === 'error') {
+        setRecPhase(phase as typeof recPhase)
+      }
+    })
+
     return () => {
       cleanupPet()
       cleanupClaude?.()
@@ -167,6 +188,7 @@ function PetWindow() {
       cleanupReminder?.()
       cleanupApp?.()
       cleanupWalk?.()
+      cleanupRecProgress?.()
     }
   }, [])
 
@@ -213,6 +235,70 @@ function PetWindow() {
     setTodoReminder(null)
   }, [])
 
+  // --- Pet recording handlers ---
+  const startPetRecording = useCallback(async () => {
+    setRecError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      })
+      recChunksRef.current = []
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(recChunksRef.current, { type: 'audio/webm' })
+        const reader = new FileReader()
+        reader.onloadend = async () => {
+          const base64 = (reader.result as string).split(',')[1]
+          const result = await window.electronAPI?.processPetRecording(base64, recTimeRef.current)
+          if (result?.error) {
+            setRecError(result.error)
+            setRecPhase('error')
+          }
+        }
+        reader.readAsDataURL(blob)
+      }
+      recorder.start(1000)
+      recMediaRef.current = recorder
+      setRecPhase('recording')
+      setRecTime(0)
+      recTimeRef.current = 0
+      window.electronAPI?.setIgnoreMouse?.(false)
+      recTimerRef.current = setInterval(() => {
+        recTimeRef.current += 1
+        setRecTime(recTimeRef.current)
+      }, 1000)
+    } catch (err) {
+      setRecError(`无法访问麦克风: ${(err as Error).message}`)
+      setRecPhase('error')
+    }
+  }, [])
+
+  const stopPetRecording = useCallback(() => {
+    if (recTimerRef.current) {
+      clearInterval(recTimerRef.current)
+      recTimerRef.current = null
+    }
+    if (recMediaRef.current?.state === 'recording') {
+      recMediaRef.current.stop()
+    }
+  }, [])
+
+  const handleViewRecResults = useCallback(() => {
+    setRecPhase('idle')
+    window.electronAPI?.openRecordingResults?.()
+  }, [])
+
+  const handleDismissRec = useCallback(() => {
+    setRecPhase('idle')
+    setRecError('')
+  }, [])
+
   // --- Mode shortcut handlers ---
   const handleModeChange = useCallback((modeId: ShortcutModeId) => {
     setActiveModeId(modeId)
@@ -249,6 +335,15 @@ function PetWindow() {
       case 'openSettingsWindow':
         window.electronAPI?.openSettingsWindow?.()
         break
+      case 'openRecordingWindow':
+        if (recPhase === 'recording') {
+          stopPetRecording()
+        } else {
+          setRecPhase('idle')
+          setRecError('')
+          startPetRecording()
+        }
+        break
       case 'executeCommand':
         if (typeof shortcut.actionPayload?.command === 'string') {
           window.electronAPI?.executeCommand?.(shortcut.actionPayload.command)
@@ -258,7 +353,7 @@ function PetWindow() {
         window.electronAPI?.quit?.()
         break
     }
-  }, [])
+  }, [recPhase, startPetRecording, stopPetRecording])
 
   // --- Window drag logic ---
   const didDragRef = useRef(false)
@@ -405,26 +500,35 @@ function PetWindow() {
     }
   }, [isEating, runEatingAnimation])
 
-  // --- Mouse hover (pause walk on hover) ---
+  // --- Mouse hover (pause walk + disable passthrough) ---
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleMouseEnter = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
     setHovered(true)
+    window.electronAPI?.setIgnoreMouse?.(false)
     window.electronAPI?.pauseWalk?.()
   }
   const handleMouseLeave = () => {
-    if (!showSelector && !commandsOpen && !chatOpen) {
-      setHovered(false)
-      window.electronAPI?.resumeWalk?.()
+    if (!showSelector && !commandsOpen && !chatOpen && recPhase === 'idle') {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = setTimeout(() => {
+        setHovered(false)
+        window.electronAPI?.setIgnoreMouse?.(true)
+        window.electronAPI?.resumeWalk?.()
+        hideTimerRef.current = null
+      }, 300)
     }
   }
 
-  // Panel visibility: keep hovered if any panel is open
-  const showUI = hovered || commandsOpen || chatOpen || showSelector
+  // Panel visibility: keep hovered if any panel is open or recording
+  const showUI = hovered || commandsOpen || chatOpen || showSelector || recPhase !== 'idle'
 
   return (
     <div
       className="app-root"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       onDragOver={handleFileDragOver}
       onDragEnter={handleFileDragEnter}
       onDragLeave={handleFileDragLeave}
@@ -437,47 +541,56 @@ function PetWindow() {
         </div>
       )}
 
-      {/* Draggable pet area */}
+      {/* Pet interaction zone — unified hover area */}
       <div
-        className={`drag-area${isFileDragOver ? ' file-drag-over' : ''}`}
-        onMouseDown={handleMouseDown}
-        style={{
-          transform: `scale(${eatScale}) scaleX(${walkDirection === -1 ? -1 : 1})`,
-          transition: 'transform 0.15s ease',
-        }}
+        className="pet-zone"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
-        <PetSprite pet={selectedPet} action={currentAction} />
+        {/* Recording indicator */}
+        {recPhase !== 'idle' && (
+          <RecordingIndicator
+            phase={recPhase}
+            recordingTime={recTime}
+            errorMsg={recError}
+            onStop={stopPetRecording}
+            onViewResults={handleViewRecResults}
+            onDismiss={handleDismissRec}
+          />
+        )}
+        {/* Draggable pet area */}
+        <div
+          className={`drag-area${isFileDragOver ? ' file-drag-over' : ''}`}
+          onMouseDown={handleMouseDown}
+          style={{
+            transform: `scale(${eatScale}) scaleX(${walkDirection === -1 ? -1 : 1})`,
+            transition: 'transform 0.15s ease',
+          }}
+        >
+          <PetSprite pet={selectedPet} action={currentAction} />
+        </div>
+
+        {/* Status bar */}
+        <StatusBar
+          claudeState={claudeState}
+          activeApp={activeApp}
+          onMouseEnter={() => setQuotaVisible(true)}
+          onMouseLeave={() => setQuotaVisible(false)}
+        />
+
+        {/* Quota cards (hover on status) */}
+        <QuotaCards quotas={quotas} visible={quotaVisible} />
+
+        {/* Mode Shortcut Toolbar (hover) */}
+        {showUI && modeConfig && (
+          <ModeShortcutToolbar
+            config={modeConfig}
+            activeModeId={activeModeId}
+            onModeChange={handleModeChange}
+            onShortcutClick={executeModeShortcut}
+          />
+        )}
       </div>
-
-      {/* Status bar */}
-      <StatusBar
-        claudeState={claudeState}
-        activeApp={activeApp}
-        onMouseEnter={() => setQuotaVisible(true)}
-        onMouseLeave={() => setQuotaVisible(false)}
-      />
-
-      {/* Quota cards (hover on status) */}
-      <QuotaCards quotas={quotas} visible={quotaVisible} />
-
-      {/* Action bar (hover) */}
-      {showUI && (
-        <ActionBar
-          currentAction={currentAction}
-          onPreviewAction={handlePreviewAction}
-        />
-      )}
-
-      {/* Mode Shortcut Toolbar (hover) */}
-      {showUI && modeConfig && (
-        <ModeShortcutToolbar
-          config={modeConfig}
-          activeModeId={activeModeId}
-          onModeChange={handleModeChange}
-          onShortcutClick={executeModeShortcut}
-          onOpenSettings={() => window.electronAPI?.openSettingsWindow?.()}
-        />
-      )}
 
       {/* Expandable panels */}
       <CommandPanel visible={commandsOpen} />
@@ -520,6 +633,7 @@ export default function App() {
   if (route === '#/diary') return <DiaryWindow />
   if (route === '#/stock') return <StockWindow />
   if (route === '#/chat') return <ChatWindow />
+  if (route === '#/recording') return <RecordingWindow />
 
   return <PetWindow />
 }

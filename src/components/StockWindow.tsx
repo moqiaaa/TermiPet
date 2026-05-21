@@ -3,6 +3,15 @@ import type { StockTrade, StockPosition, StockIndicator } from '../types/pet'
 
 type Tab = 'trades' | 'positions'
 
+interface OcrResult {
+  stock_name?: string
+  stock_code?: string
+  direction?: number
+  price?: number
+  quantity?: number
+  trade_time?: string
+}
+
 export function StockWindow() {
   const [tab, setTab] = useState<Tab>('trades')
   const [trades, setTrades] = useState<StockTrade[]>([])
@@ -25,6 +34,13 @@ export function StockWindow() {
     reason: '',
     review: '',
   })
+
+  // OCR modal
+  const [showOcrModal, setShowOcrModal] = useState(false)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrError, setOcrError] = useState('')
+  const [ocrResult, setOcrResult] = useState<OcrResult | null>(null)
+  const [ocrImagePreview, setOcrImagePreview] = useState('')
 
   // Position detail
   const [selectedPosition, setSelectedPosition] = useState<StockPosition | null>(null)
@@ -122,6 +138,90 @@ export function StockWindow() {
     loadPositions()
   }
 
+  // OCR functions
+  const openOcrModal = () => {
+    setShowOcrModal(true)
+    setOcrResult(null)
+    setOcrError('')
+    setOcrImagePreview('')
+  }
+
+  const processOcrImage = async (imageBase64: string) => {
+    setOcrImagePreview(imageBase64)
+    setOcrLoading(true)
+    setOcrError('')
+    setOcrResult(null)
+
+    const res = await window.electronAPI?.ocrTrade(imageBase64)
+    setOcrLoading(false)
+
+    if (res?.error) {
+      setOcrError(res.error)
+    } else if (res?.data) {
+      setOcrResult(res.data)
+    }
+  }
+
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    if (!showOcrModal) return
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const blob = item.getAsFile()
+        if (!blob) return
+        const reader = new FileReader()
+        reader.onload = () => {
+          processOcrImage(reader.result as string)
+        }
+        reader.readAsDataURL(blob)
+        return
+      }
+    }
+  }, [showOcrModal])
+
+  useEffect(() => {
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [handlePaste])
+
+  const handleCaptureScreen = async () => {
+    setShowOcrModal(false)
+    const res = await window.electronAPI?.captureScreen()
+    if (res?.cancelled) {
+      setShowOcrModal(true)
+      return
+    }
+    if (res?.error) {
+      setShowOcrModal(true)
+      setOcrError(res.error)
+      return
+    }
+    if (res?.data) {
+      setShowOcrModal(true)
+      processOcrImage(res.data)
+    }
+  }
+
+  const handleOcrConfirm = () => {
+    if (!ocrResult) return
+    setTradeForm({
+      id: undefined,
+      trade_date: new Date().toISOString().slice(0, 10),
+      stock_code: ocrResult.stock_code || '',
+      stock_name: ocrResult.stock_name || '',
+      direction: ocrResult.direction || 1,
+      price: ocrResult.price != null ? String(ocrResult.price) : '',
+      quantity: ocrResult.quantity != null ? String(ocrResult.quantity) : '',
+      amount: '',
+      reason: '',
+      review: '',
+    })
+    setShowOcrModal(false)
+    setShowTradeForm(true)
+  }
+
   return (
     <div className="sub-window stock-window">
       <div className="stock-tabs">
@@ -143,12 +243,13 @@ export function StockWindow() {
               <option value="week">本周</option>
               <option value="month">本月</option>
             </select>
-            <select value={direction ?? ''} onChange={e => setDirection(e.target.value ? Number(e.target.value) : undefined)}>
-              <option value="">买卖方向</option>
-              <option value="1">买入</option>
-              <option value="2">卖出</option>
-            </select>
+            <div className="direction-toggle">
+              <button className={direction === undefined ? 'active' : ''} onClick={() => setDirection(undefined)}>全部</button>
+              <button className={direction === 1 ? 'active buy' : ''} onClick={() => setDirection(1)}>买入</button>
+              <button className={direction === 2 ? 'active sell' : ''} onClick={() => setDirection(2)}>卖出</button>
+            </div>
             <button className="add-btn" onClick={() => { resetTradeForm(); setShowTradeForm(true) }}>+ 记录</button>
+            <button className="ocr-btn" onClick={openOcrModal}>OCR识别</button>
           </div>
 
           {showTradeForm && (
@@ -157,10 +258,10 @@ export function StockWindow() {
                 <input value={tradeForm.trade_date} onChange={e => setTradeForm({ ...tradeForm, trade_date: e.target.value })} type="date" />
                 <input value={tradeForm.stock_code} onChange={e => setTradeForm({ ...tradeForm, stock_code: e.target.value })} placeholder="股票代码" />
                 <input value={tradeForm.stock_name} onChange={e => setTradeForm({ ...tradeForm, stock_name: e.target.value })} placeholder="股票名称" />
-                <select value={tradeForm.direction} onChange={e => setTradeForm({ ...tradeForm, direction: Number(e.target.value) })}>
-                  <option value={1}>买入</option>
-                  <option value={2}>卖出</option>
-                </select>
+                <div className="direction-toggle">
+                  <button className={tradeForm.direction === 1 ? 'active buy' : ''} onClick={() => setTradeForm({ ...tradeForm, direction: 1 })}>买入</button>
+                  <button className={tradeForm.direction === 2 ? 'active sell' : ''} onClick={() => setTradeForm({ ...tradeForm, direction: 2 })}>卖出</button>
+                </div>
                 <input value={tradeForm.price} onChange={e => setTradeForm({ ...tradeForm, price: e.target.value })} placeholder="价格" type="number" step="0.01" />
                 <input value={tradeForm.quantity} onChange={e => setTradeForm({ ...tradeForm, quantity: e.target.value })} placeholder="数量" type="number" />
               </div>
@@ -276,6 +377,75 @@ export function StockWindow() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showOcrModal && (
+        <div className="ocr-modal-overlay" onClick={() => setShowOcrModal(false)}>
+          <div className="ocr-modal" onClick={e => e.stopPropagation()}>
+            <div className="ocr-modal-header">
+              <span>OCR 识别交易</span>
+              <button className="ocr-close-btn" onClick={() => setShowOcrModal(false)}>×</button>
+            </div>
+            <div className="ocr-modal-body">
+              <div className="ocr-paste-zone" onClick={handleCaptureScreen}>
+                {ocrImagePreview ? (
+                  <img src={ocrImagePreview} alt="截图预览" className="ocr-preview-img" />
+                ) : (
+                  <>
+                    <div className="ocr-paste-icon">📋</div>
+                    <div className="ocr-paste-text">Ctrl+V 粘贴截图 或</div>
+                    <button className="ocr-capture-btn" onClick={e => { e.stopPropagation(); handleCaptureScreen() }}>
+                      ✂ 点击截图
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {ocrLoading && <div className="ocr-status">识别中...</div>}
+              {ocrError && <div className="ocr-status ocr-error">{ocrError}</div>}
+
+              {ocrResult && (
+                <>
+                  <div className="ocr-divider" />
+                  <div className="ocr-result-title">识别结果</div>
+                  <div className="ocr-result-grid">
+                    <div className="ocr-field">
+                      <label>证券名称</label>
+                      <input value={ocrResult.stock_name || ''} onChange={e => setOcrResult({ ...ocrResult, stock_name: e.target.value })} />
+                    </div>
+                    <div className="ocr-field">
+                      <label>证券代码</label>
+                      <input value={ocrResult.stock_code || ''} onChange={e => setOcrResult({ ...ocrResult, stock_code: e.target.value })} />
+                    </div>
+                    <div className="ocr-field">
+                      <label>买卖方向</label>
+                      <div className="direction-toggle">
+                        <button className={ocrResult.direction === 1 ? 'active buy' : ''} onClick={() => setOcrResult({ ...ocrResult, direction: 1 })}>买入</button>
+                        <button className={ocrResult.direction === 2 ? 'active sell' : ''} onClick={() => setOcrResult({ ...ocrResult, direction: 2 })}>卖出</button>
+                      </div>
+                    </div>
+                    <div className="ocr-field">
+                      <label>成交价格</label>
+                      <input value={ocrResult.price ?? ''} onChange={e => setOcrResult({ ...ocrResult, price: Number(e.target.value) || 0 })} type="number" step="0.0001" />
+                    </div>
+                    <div className="ocr-field">
+                      <label>成交数量</label>
+                      <input value={ocrResult.quantity ?? ''} onChange={e => setOcrResult({ ...ocrResult, quantity: Number(e.target.value) || 0 })} type="number" />
+                    </div>
+                    <div className="ocr-field">
+                      <label>成交时间</label>
+                      <input value={ocrResult.trade_time || ''} onChange={e => setOcrResult({ ...ocrResult, trade_time: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="ocr-actions">
+                    <button className="ocr-action-cancel" onClick={() => setShowOcrModal(false)}>取消</button>
+                    <button className="ocr-action-confirm" onClick={handleOcrConfirm}>确认录入</button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -52,7 +52,7 @@ export function TodoReminder({ todo, onDismiss, onOpen, onSnooze }: TodoReminder
         </div>
 
         <div className="todo-reminder-task">
-          <span>{todo.priority === 'high' ? '工作 · 高优先级' : '待办提醒'}</span>
+          <span>{todo.priority === 'high' ? '高优先级' : todo.priority === 'low' ? '低优先级' : '待办提醒'}</span>
           <strong>{todo.title}</strong>
           {todo.note && <p>{todo.note}</p>}
         </div>

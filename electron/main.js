@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard, desktopCapturer } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -30,15 +30,20 @@ let claudeHook = null
 
 // qimo modules (loaded lazily after app ready)
 let store = null
-let todoLogic = null
 let diaryLogic = null
 let stockLogic = null
-let db = null
+let recordingDb = null
+
+// Cached data (loaded from DB at startup)
+let settingsCache = null
+let commandsCache = null
 
 // Sub-windows
 let todoWindow = null
 let diaryWindow = null
 let stockWindow = null
+let recordingWindow = null
+let pendingRecordingResults = null
 
 // Todo reminder
 let todoReminderTimer = null
@@ -237,14 +242,15 @@ const DEFAULT_SETTINGS = {
 }
 
 function loadSettings() {
-  const saved = readJSON(getUserDataPath('settings.json'), {})
-  return { ...DEFAULT_SETTINGS, ...saved }
+  return settingsCache || DEFAULT_SETTINGS
 }
 
-function saveSettings(settings) {
+async function saveSettings(settings) {
   const current = loadSettings()
   const merged = { ...current, ...settings }
-  writeJSON(getUserDataPath('settings.json'), merged)
+  const { setConfig } = require('./config-db')
+  await setConfig('settings', merged)
+  settingsCache = merged
   return merged
 }
 
@@ -273,16 +279,7 @@ const DEFAULT_COMMANDS = [
 ]
 
 function loadCommands() {
-  const filePath = getUserDataPath('commands.json')
-  if (!fs.existsSync(filePath)) {
-    writeJSON(filePath, DEFAULT_COMMANDS)
-    return DEFAULT_COMMANDS
-  }
-  return readJSON(filePath, DEFAULT_COMMANDS)
-}
-
-function saveCommands(commands) {
-  writeJSON(getUserDataPath('commands.json'), commands)
+  return commandsCache || DEFAULT_COMMANDS
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +860,7 @@ function createMainWindow() {
     width: 280,
     height: 320,
     x: screenWidth - 320,
-    y: screenHeight - 370,
+    y: screenHeight - 360,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -877,7 +874,7 @@ function createMainWindow() {
     },
   })
 
-  mainWindow.setIgnoreMouseEvents(false)
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5174')
@@ -891,7 +888,6 @@ function createMainWindow() {
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    setTimeout(() => startWalking(), 3000)
   })
 }
 
@@ -933,18 +929,18 @@ function createSettingsWindow() {
 }
 
 function createSubWindow(hashRoute, width, height) {
-  const isTodoWindow = hashRoute === '/todo'
+  const isLightWindow = hashRoute === '/todo' || hashRoute === '/recording'
   const win = new BrowserWindow({
     width,
     height,
     resizable: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: isTodoWindow ? '#f5f7fb' : '#1a1a2e',
-      symbolColor: isTodoWindow ? '#334155' : '#e0e0e0',
+      color: isLightWindow ? '#f5f7fb' : '#1a1a2e',
+      symbolColor: isLightWindow ? '#334155' : '#e0e0e0',
       height: 36,
     },
-    backgroundColor: isTodoWindow ? '#f5f7fb' : '#1a1a2e',
+    backgroundColor: isLightWindow ? '#f5f7fb' : '#1a1a2e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1011,6 +1007,15 @@ function openChatWindowWithMessage(payload) {
   if (chatWindow && !chatWindow.isDestroyed()) {
     chatWindow.focus()
   }
+}
+
+function createRecordingWindow() {
+  if (recordingWindow && !recordingWindow.isDestroyed()) {
+    recordingWindow.focus()
+    return
+  }
+  recordingWindow = createSubWindow('/recording', 900, 620)
+  recordingWindow.on('closed', () => { recordingWindow = null })
 }
 
 // ---------------------------------------------------------------------------
@@ -1202,11 +1207,13 @@ function setupIPC() {
     }
   })
 
-  // -- Commands --
+  // -- Commands (MySQL) --
   ipcMain.handle('get-commands', () => loadCommands())
 
-  ipcMain.handle('save-commands', (_event, commands) => {
-    saveCommands(commands)
+  ipcMain.handle('save-commands', async (_event, commands) => {
+    const commandDB = require('./command-db')
+    await commandDB.saveCommands(commands)
+    commandsCache = await commandDB.getCommands()
     return true
   })
 
@@ -1222,6 +1229,16 @@ function setupIPC() {
   ipcMain.handle('set-window-size', (_event, width, height, animate) => {
     if (!mainWindow) return
     mainWindow.setSize(width, height, !!animate)
+  })
+
+  // -- Mouse passthrough control --
+  ipcMain.handle('set-ignore-mouse', (_event, ignore) => {
+    if (!mainWindow) return
+    if (ignore) {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true })
+    } else {
+      mainWindow.setIgnoreMouseEvents(false)
+    }
   })
 
   // -- File drop --
@@ -1260,94 +1277,188 @@ function setupIPC() {
   // -- Quota --
   ipcMain.handle('get-usage-quotas', () => getUsageQuotas())
 
-  // -- Todo (electron-store) --
-  ipcMain.handle('get-todos', () => store.get('todos'))
-  ipcMain.handle('save-todo', (_event, todo) => {
-    const todos = store.get('todos')
-    const result = todoLogic.saveTodo(todos, todo)
-    if (result) store.set('todos', result)
-    return result
-  })
-  ipcMain.handle('delete-todo', (_event, id) => {
-    const todos = store.get('todos')
-    const result = todoLogic.deleteTodo(todos, id)
-    if (result) store.set('todos', result)
-    return result
-  })
-  ipcMain.handle('get-projects', () => store.get('projects'))
-  ipcMain.handle('save-project', (_event, project) => {
-    const projects = store.get('projects')
-    const result = todoLogic.saveProject(projects, project)
-    if (result) store.set('projects', result)
-    return result
-  })
-  ipcMain.handle('delete-project', (_event, id) => {
-    const projects = store.get('projects')
-    const todos = store.get('todos')
-    const result = todoLogic.deleteProject(projects, todos, id)
-    if (result) {
-      store.set('projects', result.projects)
-      store.set('todos', result.todos)
+  // -- Todo / Project (MySQL) --
+  ipcMain.handle('get-todos', () => require('./todo-db').getTodos())
+  ipcMain.handle('save-todo', (_event, todo) => require('./todo-db').saveTodo(todo))
+  ipcMain.handle('delete-todo', (_event, id) => require('./todo-db').deleteTodo(id))
+  ipcMain.handle('get-projects', () => require('./todo-db').getProjects())
+  ipcMain.handle('save-project', (_event, project) => require('./todo-db').saveProject(project))
+  ipcMain.handle('delete-project', (_event, id) => require('./todo-db').deleteProject(id))
+
+  // -- Diary (MySQL, lazy-loaded) --
+  function getDiaryLogic() {
+    if (!diaryLogic) diaryLogic = require('./diary-logic')
+    return diaryLogic
+  }
+  ipcMain.handle('get-diary-categories', () => getDiaryLogic().getCategories())
+  ipcMain.handle('get-diaries', (_event, params) => getDiaryLogic().getDiaries(params))
+  ipcMain.handle('get-diary-by-id', (_event, id) => getDiaryLogic().getDiaryById(id))
+  ipcMain.handle('get-diary-count', (_event, categoryId) => getDiaryLogic().getDiaryCount(categoryId))
+  ipcMain.handle('save-diary', (_event, diary) => getDiaryLogic().saveDiary(diary))
+  ipcMain.handle('delete-diary', (_event, id) => getDiaryLogic().deleteDiary(id))
+
+  // -- Stock (MySQL, lazy-loaded) --
+  function getStockLogic() {
+    if (!stockLogic) stockLogic = require('./stock-logic')
+    return stockLogic
+  }
+  ipcMain.handle('get-trades', (_event, params) => getStockLogic().getTrades(params))
+  ipcMain.handle('get-trade-by-id', (_event, id) => getStockLogic().getTradeById(id))
+  ipcMain.handle('get-trade-count', (_event, params) => getStockLogic().getTradeCount(params))
+  ipcMain.handle('save-trade', (_event, trade) => getStockLogic().saveTrade(trade))
+  ipcMain.handle('delete-trade', (_event, id) => getStockLogic().deleteTrade(id))
+  ipcMain.handle('get-positions', (_event, keyword) => getStockLogic().getPositions(keyword))
+  ipcMain.handle('get-position-by-id', (_event, id) => getStockLogic().getPositionById(id))
+  ipcMain.handle('save-position', (_event, pos) => getStockLogic().savePosition(pos))
+  ipcMain.handle('delete-position', (_event, id) => getStockLogic().deletePosition(id))
+  ipcMain.handle('get-indicators', (_event, stockCode) => getStockLogic().getIndicators(stockCode))
+  ipcMain.handle('save-indicator', (_event, ind) => getStockLogic().saveIndicator(ind))
+  ipcMain.handle('delete-indicator', (_event, id) => getStockLogic().deleteIndicator(id))
+
+  // -- Stock OCR --
+  ipcMain.handle('ocr-trade', async (_event, imageBase64) => {
+    try {
+      const alicloud = await configDB.getConfig('alicloud')
+      const settings = loadSettings()
+      const apiKey = settings.apiKeys?.custom || alicloud?.chatKey
+      const endpoint = settings.apiKeys?.custom_endpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+      if (!apiKey) return { error: '未配置 API Key' }
+
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+      const body = JSON.stringify({
+        model: 'qwen-vl-max',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一个股票交易截图识别助手。从截图中提取交易信息，返回 JSON 格式，字段包括：stock_name(证券名称), stock_code(证券代码), direction(买卖方向，买入=1，卖出=2), price(成交价格，数字), quantity(成交数量，数字), trade_time(成交时间)。只返回 JSON，不要其他文字。'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Data}` } },
+              { type: 'text', text: '请识别这张交易截图中的信息' }
+            ]
+          }
+        ],
+      })
+
+      const res = await httpRequest(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      })
+
+      if (res.status >= 400) {
+        return { error: `API 请求失败: HTTP ${res.status}` }
+      }
+
+      const data = JSON.parse(res.body)
+      const content = data.choices?.[0]?.message?.content || ''
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) return { error: '无法解析识别结果' }
+      return { data: JSON.parse(jsonMatch[0]) }
+    } catch (err) {
+      return { error: err.message }
     }
-    return result
   })
 
-  // -- Diary (MySQL) --
-  ipcMain.handle('get-diary-categories', () => diaryLogic.getCategories())
-  ipcMain.handle('get-diaries', (_event, params) => diaryLogic.getDiaries(params))
-  ipcMain.handle('get-diary-by-id', (_event, id) => diaryLogic.getDiaryById(id))
-  ipcMain.handle('get-diary-count', (_event, categoryId) => diaryLogic.getDiaryCount(categoryId))
-  ipcMain.handle('save-diary', (_event, diary) => diaryLogic.saveDiary(diary))
-  ipcMain.handle('delete-diary', (_event, id) => diaryLogic.deleteDiary(id))
+  ipcMain.handle('capture-screen', async () => {
+    try {
+      const displays = screen.getAllDisplays()
+      const primaryDisplay = screen.getPrimaryDisplay()
+      const { width, height } = primaryDisplay.size
+      const scaleFactor = primaryDisplay.scaleFactor
 
-  // -- Stock (MySQL) --
-  ipcMain.handle('get-trades', (_event, params) => stockLogic.getTrades(params))
-  ipcMain.handle('get-trade-by-id', (_event, id) => stockLogic.getTradeById(id))
-  ipcMain.handle('get-trade-count', (_event, params) => stockLogic.getTradeCount(params))
-  ipcMain.handle('save-trade', (_event, trade) => stockLogic.saveTrade(trade))
-  ipcMain.handle('delete-trade', (_event, id) => stockLogic.deleteTrade(id))
-  ipcMain.handle('get-positions', (_event, keyword) => stockLogic.getPositions(keyword))
-  ipcMain.handle('get-position-by-id', (_event, id) => stockLogic.getPositionById(id))
-  ipcMain.handle('save-position', (_event, pos) => stockLogic.savePosition(pos))
-  ipcMain.handle('delete-position', (_event, id) => stockLogic.deletePosition(id))
-  ipcMain.handle('get-indicators', (_event, stockCode) => stockLogic.getIndicators(stockCode))
-  ipcMain.handle('save-indicator', (_event, ind) => stockLogic.saveIndicator(ind))
-  ipcMain.handle('delete-indicator', (_event, id) => stockLogic.deleteIndicator(id))
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: width * scaleFactor, height: height * scaleFactor },
+      })
 
-  // -- Todo reminder --
-  ipcMain.handle('dismiss-todo-reminder', (_event, id) => {
-    const todos = store.get('todos') || []
-    const updated = todos.map(t => t.id === id ? { ...t, notified: true } : t)
-    store.set('todos', updated)
+      if (!sources.length) return { error: '无法捕获屏幕' }
+
+      const source = sources[0]
+      const dataUrl = source.thumbnail.toDataURL()
+
+      return new Promise((resolve) => {
+        const screenshotWin = new BrowserWindow({
+          x: primaryDisplay.bounds.x,
+          y: primaryDisplay.bounds.y,
+          width,
+          height,
+          fullscreen: true,
+          frame: false,
+          transparent: false,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+          },
+        })
+
+        screenshotWin.setMenu(null)
+        screenshotWin.loadFile(path.join(__dirname, 'screenshot.html'))
+
+        screenshotWin.webContents.on('did-finish-load', () => {
+          screenshotWin.webContents.send('screenshot-data', dataUrl)
+        })
+
+        ipcMain.once('screenshot-result', (_event, result) => {
+          screenshotWin.close()
+          if (result) {
+            resolve({ data: result })
+          } else {
+            resolve({ cancelled: true })
+          }
+        })
+
+        screenshotWin.on('closed', () => {
+          resolve({ cancelled: true })
+        })
+      })
+    } catch (err) {
+      return { error: err.message }
+    }
+  })
+
+  // -- Todo reminder (MySQL) --
+  ipcMain.handle('dismiss-todo-reminder', async (_event, id) => {
+    const { query } = require('./db')
+    await query('UPDATE todo SET notified = 1 WHERE id = ?', [id])
     return true
   })
 
-  ipcMain.handle('snooze-todo-reminder', (_event, id, minutes) => {
-    const todos = store.get('todos') || []
+  ipcMain.handle('snooze-todo-reminder', async (_event, id, minutes) => {
     const delayMinutes = Number.isFinite(Number(minutes)) ? Math.max(1, Number(minutes)) : 10
     const reminderAt = new Date(Date.now() + delayMinutes * 60_000).toISOString()
-    const updated = todos.map(t => t.id === id ? { ...t, reminderAt, notified: false } : t)
-    store.set('todos', updated)
+    const { query } = require('./db')
+    await query('UPDATE todo SET reminder_at = ?, notified = 0 WHERE id = ?', [reminderAt, id])
     return true
   })
 
-  function checkTodoReminders() {
+  async function checkTodoReminders() {
     if (!mainWindow || mainWindow.isDestroyed()) return
-    const todos = store.get('todos') || []
-    const now = Date.now()
-    for (const todo of todos) {
-      if (todo.done || todo.notified) continue
-      const reminderSource = todo.reminderAt || todo.dueDate
-      if (!reminderSource) continue
-      const dueTime = new Date(reminderSource).getTime()
-      if (isNaN(dueTime)) continue
-      if (now >= dueTime) {
-        mainWindow.webContents.send('todo-reminder', todo)
-        const updated = todos.map(t => t.id === todo.id ? { ...t, notified: true } : t)
-        store.set('todos', updated)
-        break
+    try {
+      const todoDB = require('./todo-db')
+      const todos = await todoDB.getTodos()
+      const now = Date.now()
+      for (const todo of todos) {
+        if (todo.done || todo.notified) continue
+        const reminderSource = todo.reminderAt || todo.dueDate
+        if (!reminderSource) continue
+        const dueTime = new Date(reminderSource).getTime()
+        if (isNaN(dueTime)) continue
+        if (now >= dueTime) {
+          mainWindow.webContents.send('todo-reminder', todo)
+          const { query } = require('./db')
+          await query('UPDATE todo SET notified = 1 WHERE id = ?', [todo.id])
+          break
+        }
       }
-    }
+    } catch {}
   }
 
   todoReminderTimer = setInterval(checkTodoReminders, 60_000)
@@ -1355,47 +1466,69 @@ function setupIPC() {
 
   // -- Speech to text (DashScope FunASR / SenseVoice) --
   ipcMain.handle('transcribe-audio', async (_event, audioBase64) => {
-    const speechKey = store.get('alicloud.speechKey')
+    const { getConfig } = require('./config-db')
+    const alicloud = await getConfig('alicloud')
+    const speechKey = alicloud?.speechKey
     if (!speechKey) {
       return { error: '未配置语音识别 API Key，请在设置中配置' }
     }
 
     try {
       const audioBuffer = Buffer.from(audioBase64, 'base64')
+      const filename = `recording-${Date.now()}.webm`
 
-      // Step 1: Upload audio file to DashScope
-      const boundary = '----FormBound' + Date.now().toString(36)
-      const parts = [
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\nfile-extract\r\n`),
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.webm"\r\nContent-Type: audio/webm\r\n\r\n`),
-        audioBuffer,
-        Buffer.from(`\r\n--${boundary}--\r\n`),
-      ]
-      const uploadBody = Buffer.concat(parts)
+      // Step 1: Get OSS upload policy from DashScope
+      const policyRes = await httpRequest(
+        `https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=sensevoice-v1`,
+        { method: 'GET', headers: { 'Authorization': `Bearer ${speechKey}` } }
+      )
+      if (policyRes.status >= 400) {
+        return { error: `获取上传凭证失败: HTTP ${policyRes.status}: ${policyRes.body}` }
+      }
+      const policyData = JSON.parse(policyRes.body)
+      const { data } = policyData
+      if (!data || !data.upload_host || !data.policy) {
+        return { error: `获取上传凭证失败: ${policyRes.body}` }
+      }
 
-      const uploadRes = await httpRequest('https://dashscope.aliyuncs.com/compatible-mode/v1/files', {
+      // Step 2: Upload audio file to OSS
+      const ossKey = `${data.upload_dir}/${filename}`
+      const boundary = '----OSSBound' + Date.now().toString(36)
+      const fields = {
+        OSSAccessKeyId: data.oss_access_key_id,
+        Signature: data.signature,
+        policy: data.policy,
+        'x-oss-object-acl': data.x_oss_object_acl,
+        'x-oss-forbid-overwrite': data.x_oss_forbid_overwrite,
+        key: ossKey,
+        success_action_status: '200',
+      }
+      const ossParts = []
+      for (const [k, v] of Object.entries(fields)) {
+        ossParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
+      }
+      ossParts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: audio/webm\r\n\r\n`
+      ))
+      ossParts.push(audioBuffer)
+      ossParts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+      const ossBody = Buffer.concat(ossParts)
+
+      const ossRes = await httpRequest(data.upload_host, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${speechKey}`,
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        },
-        body: uploadBody,
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body: ossBody,
       })
-
-      if (uploadRes.status >= 400) {
-        return { error: `文件上传失败: HTTP ${uploadRes.status}: ${uploadRes.body}` }
+      if (ossRes.status >= 300) {
+        return { error: `OSS 上传失败: HTTP ${ossRes.status}: ${ossRes.body}` }
       }
 
-      const uploadData = JSON.parse(uploadRes.body)
-      const fileId = uploadData.id
-      if (!fileId) {
-        return { error: `文件上传失败: 未返回 file id: ${uploadRes.body}` }
-      }
+      const ossUrl = `oss://${ossKey}`
 
-      // Step 2: Submit transcription task
+      // Step 3: Submit transcription task
       const taskBody = JSON.stringify({
         model: 'sensevoice-v1',
-        input: { file_urls: [`fileid://${fileId}`] },
+        input: { file_urls: [ossUrl] },
         parameters: { language_hints: ['zh'] },
       })
 
@@ -1405,6 +1538,7 @@ function setupIPC() {
           'Authorization': `Bearer ${speechKey}`,
           'Content-Type': 'application/json',
           'X-DashScope-Async': 'enable',
+          'X-DashScope-OssResourceResolve': 'enable',
         },
         body: taskBody,
       })
@@ -1419,7 +1553,7 @@ function setupIPC() {
         return { error: `提交识别任务失败: 未返回 task_id: ${taskRes.body}` }
       }
 
-      // Step 3: Poll for results (max 60s)
+      // Step 4: Poll for results (max 60s)
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 1000))
 
@@ -1442,7 +1576,6 @@ function setupIPC() {
             return { text: results[0].text || '' }
           }
 
-          // Fetch the transcription JSON
           const transRes = await httpRequest(transUrl, { method: 'GET' })
           const transData = JSON.parse(transRes.body)
 
@@ -1474,15 +1607,57 @@ function setupIPC() {
     }
   })
 
-  // -- Mode Shortcut Config --
-  ipcMain.handle('get-mode-shortcut-config', () => {
-    return store.get('modeShortcutConfig')
+  // -- Scenes (MySQL) --
+  ipcMain.handle('get-scenes', () => require('./scene-db').getScenes())
+
+  ipcMain.handle('save-scenes', async (_event, scenes, defaultSceneId) => {
+    await require('./scene-db').saveScenes(scenes, defaultSceneId)
+    return true
   })
 
-  ipcMain.handle('save-mode-shortcut-config', (_event, config) => {
-    store.set('modeShortcutConfig', config)
-    return store.get('modeShortcutConfig')
+  // -- Summarize transcript (DashScope LLM) --
+  ipcMain.handle('summarize-transcript', async (_event, transcript, prompt) => {
+    const settings = loadSettings()
+    const apiKey = settings.apiKeys?.custom
+    const endpoint = settings.apiKeys?.custom_endpoint
+    if (!apiKey || !endpoint) {
+      return { error: '未配置 LLM API Key，请在设置中配置' }
+    }
+
+    try {
+      const body = JSON.stringify({
+        model: settings.ollamaModel || 'qwen-vl-max',
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: transcript },
+        ],
+      })
+
+      const res = await httpRequest(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body,
+      })
+
+      if (res.status >= 400) {
+        return { error: `LLM 请求失败: HTTP ${res.status}` }
+      }
+
+      const data = JSON.parse(res.body)
+      const text = data.choices?.[0]?.message?.content
+      return { text: text || '' }
+    } catch (err) {
+      return { error: `摘要生成失败: ${err.message}` }
+    }
   })
+
+  // -- Mode Shortcut Config (MySQL) --
+  ipcMain.handle('get-mode-shortcut-config', () => require('./shortcut-db').getModeShortcutConfig())
+
+  ipcMain.handle('save-mode-shortcut-config', (_event, config) => require('./shortcut-db').saveModeShortcutConfig(config))
 
   // -- Sub windows --
   ipcMain.handle('open-todo-window', () => { createTodoWindow(); return true })
@@ -1516,6 +1691,274 @@ function setupIPC() {
   })
   ipcMain.handle('open-diary-window', () => { createDiaryWindow(); return true })
   ipcMain.handle('open-stock-window', () => { createStockWindow(); return true })
+  ipcMain.handle('open-recording-window', () => { createRecordingWindow(); return true })
+
+  ipcMain.handle('process-pet-recording', async (_event, audioBase64, duration) => {
+    const sendProgress = (phase) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('recording-progress', phase)
+      }
+    }
+
+    sendProgress('transcribing')
+
+    const { getConfig } = require('./config-db')
+    const alicloud = await getConfig('alicloud')
+    const speechKey = alicloud?.speechKey
+    if (!speechKey) {
+      sendProgress('error')
+      return { error: '未配置语音识别 API Key' }
+    }
+
+    try {
+      const rawBuffer = Buffer.from(audioBase64, 'base64')
+      console.log('[录音] 收到 webm 原始大小:', rawBuffer.length)
+      const ts = Date.now()
+      const tmpDir = path.join(app.getPath('temp'), 'termipet-rec')
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+      const webmPath = path.join(tmpDir, `tmp-${ts}.webm`)
+      const wavPath = path.join(tmpDir, `tmp-${ts}.wav`)
+      fs.writeFileSync(webmPath, rawBuffer)
+      const { execSync } = require('child_process')
+      try {
+        const ffOut = execSync(`ffmpeg -y -i "${webmPath}" -ar 16000 -ac 1 -sample_fmt s16 "${wavPath}" 2>&1`, { encoding: 'utf-8' })
+        console.log('[录音] ffmpeg 输出:', ffOut.slice(-200))
+      } catch (ffErr) {
+        console.error('[录音] ffmpeg 失败:', ffErr.stderr || ffErr.message)
+        sendProgress('error')
+        try { fs.unlinkSync(webmPath) } catch (_) {}
+        return { error: `音频转换失败 (ffmpeg): ${ffErr.message}` }
+      }
+      const audioBuffer = fs.readFileSync(wavPath)
+      console.log('[录音] WAV 大小:', audioBuffer.length, 'RIFF:', audioBuffer.slice(0,4).toString('ascii'))
+      try { fs.unlinkSync(webmPath); fs.unlinkSync(wavPath) } catch (_) {}
+      const filename = `recording-${ts}.wav`
+
+      const policyRes = await httpRequest(
+        `https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=sensevoice-v1`,
+        { method: 'GET', headers: { 'Authorization': `Bearer ${speechKey}` } }
+      )
+      if (policyRes.status >= 400) {
+        sendProgress('error')
+        return { error: `获取上传凭证失败: HTTP ${policyRes.status}` }
+      }
+      const policyData = JSON.parse(policyRes.body)
+      const { data } = policyData
+      if (!data || !data.upload_host || !data.policy) {
+        sendProgress('error')
+        return { error: `获取上传凭证失败` }
+      }
+
+      const ossKey = `${data.upload_dir}/${filename}`
+      const boundary = '----OSSBound' + Date.now().toString(36)
+      const fields = {
+        OSSAccessKeyId: data.oss_access_key_id,
+        Signature: data.signature,
+        policy: data.policy,
+        'x-oss-object-acl': data.x_oss_object_acl,
+        'x-oss-forbid-overwrite': data.x_oss_forbid_overwrite,
+        key: ossKey,
+        success_action_status: '200',
+      }
+      const ossParts = []
+      for (const [k, v] of Object.entries(fields)) {
+        ossParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
+      }
+      ossParts.push(Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: audio/wav\r\n\r\n`
+      ))
+      ossParts.push(audioBuffer)
+      ossParts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+
+      const ossRes = await httpRequest(data.upload_host, {
+        method: 'POST',
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body: Buffer.concat(ossParts),
+      })
+      if (ossRes.status >= 300) {
+        sendProgress('error')
+        return { error: `OSS 上传失败: HTTP ${ossRes.status}` }
+      }
+
+      const ossUrl = `oss://${ossKey}`
+      const taskBody = JSON.stringify({
+        model: 'sensevoice-v1',
+        input: { file_urls: [ossUrl] },
+        parameters: { language_hints: ['zh'] },
+      })
+      const taskRes = await httpRequest('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${speechKey}`,
+          'Content-Type': 'application/json',
+          'X-DashScope-Async': 'enable',
+          'X-DashScope-OssResourceResolve': 'enable',
+        },
+        body: taskBody,
+      })
+      if (taskRes.status >= 400) {
+        sendProgress('error')
+        return { error: `提交识别任务失败: HTTP ${taskRes.status}` }
+      }
+
+      const taskData = JSON.parse(taskRes.body)
+      const taskId = taskData.output?.task_id
+      if (!taskId) {
+        sendProgress('error')
+        return { error: `提交识别任务失败: 未返回 task_id` }
+      }
+
+      let rawText = ''
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const pollRes = await httpRequest(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${speechKey}` },
+        })
+        const pollData = JSON.parse(pollRes.body)
+        const st = pollData.output?.task_status
+        if (st === 'SUCCEEDED') {
+          const results = pollData.output?.results
+          if (results?.[0]?.transcription_url) {
+            const transRes = await httpRequest(results[0].transcription_url, { method: 'GET' })
+            const transData = JSON.parse(transRes.body)
+            if (transData.transcripts) {
+              for (const t of transData.transcripts) {
+                if (t.sentences) rawText += t.sentences.map(s => s.text).join('')
+                else if (t.text) rawText += t.text
+              }
+            }
+            if (!rawText && transData.text) rawText = transData.text
+          } else if (results?.[0]?.text) {
+            rawText = results[0].text
+          }
+          break
+        }
+        if (st === 'FAILED') {
+          const code = pollData.output?.code
+          if (code === 'InvalidFile.EmptyOutput') {
+            sendProgress('error')
+            return { error: '没有检测到语音内容，请靠近麦克风说话后重试' }
+          }
+          sendProgress('error')
+          return { error: `语音识别失败: ${pollData.output?.message || '未知错误'}` }
+        }
+      }
+
+      if (!rawText) {
+        sendProgress('error')
+        return { error: '语音识别超时或无结果' }
+      }
+
+      sendProgress('summarizing')
+
+      const sceneData = await require('./scene-db').getScenes()
+      const allScenes = sceneData.scenes || []
+      const scene = allScenes.find(s => s.id === sceneData.defaultSceneId) || allScenes[0]
+
+      let summary = ''
+      let todoSummary = ''
+      if (scene) {
+        const settings = loadSettings()
+        const apiKey = settings.apiKeys?.custom || alicloud?.chatKey
+        const endpoint = settings.apiKeys?.custom_endpoint || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+        if (apiKey && endpoint) {
+          const summarize = async (prompt) => {
+            const body = JSON.stringify({
+              model: settings.ollamaModel || 'qwen-vl-max',
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: rawText },
+              ],
+            })
+            const res = await httpRequest(endpoint, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body,
+            })
+            if (res.status < 400) {
+              const d = JSON.parse(res.body)
+              return d.choices?.[0]?.message?.content || ''
+            }
+            return ''
+          }
+          const [s, t] = await Promise.all([
+            summarize(scene.summaryPrompt),
+            summarize(scene.todoPrompt),
+          ])
+          summary = s
+          todoSummary = t
+        }
+      }
+
+      // Save audio file to disk
+      const recordingsDir = path.join(app.getPath('userData'), 'TermiPet', 'recordings')
+      if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true })
+      const audioFileName = `rec-${Date.now()}.wav`
+      const audioFilePath = path.join(recordingsDir, audioFileName)
+      fs.writeFileSync(audioFilePath, audioBuffer)
+
+      // Save to database
+      if (!recordingDb) recordingDb = require('./recording-db')
+      const recId = await recordingDb.saveRecording({
+        sceneName: scene?.name || '',
+        rawText,
+        summary,
+        todoSummary,
+        audioPath: audioFilePath,
+        duration: duration || 0,
+        createdAt: Date.now(),
+      })
+
+      pendingRecordingResults = { id: recId, rawText, summary, todoSummary, sceneName: scene?.name || '', audioPath: audioFilePath, duration: duration || 0 }
+      sendProgress('done')
+      return { success: true }
+    } catch (err) {
+      sendProgress('error')
+      return { error: `处理失败: ${err.message}` }
+    }
+  })
+
+  ipcMain.handle('get-recording-results', () => {
+    const results = pendingRecordingResults
+    pendingRecordingResults = null
+    return results
+  })
+
+  ipcMain.handle('open-recording-results', () => {
+    createRecordingWindow()
+    return true
+  })
+
+  ipcMain.handle('get-recordings', async (_event, limit, offset) => {
+    if (!recordingDb) recordingDb = require('./recording-db')
+    return recordingDb.getRecordings(limit || 50, offset || 0)
+  })
+
+  ipcMain.handle('get-recording-by-id', async (_event, id) => {
+    if (!recordingDb) recordingDb = require('./recording-db')
+    return recordingDb.getRecordingById(id)
+  })
+
+  ipcMain.handle('delete-recording', async (_event, id) => {
+    if (!recordingDb) recordingDb = require('./recording-db')
+    const rec = await recordingDb.getRecordingById(id)
+    if (rec?.audioPath && fs.existsSync(rec.audioPath)) {
+      fs.unlinkSync(rec.audioPath)
+    }
+    await recordingDb.deleteRecording(id)
+    return true
+  })
+
+  ipcMain.handle('get-recording-audio', async (_event, audioPath) => {
+    if (!audioPath || !fs.existsSync(audioPath)) return null
+    const buf = fs.readFileSync(audioPath)
+    return buf.toString('base64')
+  })
+
   ipcMain.handle('open-chat-window', () => { createChatWindow(); return true })
   ipcMain.handle('open-chat-window-with-message', (_event, payload) => {
     openChatWindowWithMessage(payload)
@@ -1545,9 +1988,9 @@ function setupIPC() {
     direction: walkState.direction,
   }))
 
-  // -- Store (generic) --
-  ipcMain.handle('store-get', (_event, key) => store.get(key))
-  ipcMain.handle('store-set', (_event, key, value) => { store.set(key, value); return true })
+  // -- Config (MySQL app_config) --
+  ipcMain.handle('store-get', (_event, key) => require('./config-db').getConfig(key))
+  ipcMain.handle('store-set', async (_event, key, value) => { await require('./config-db').setConfig(key, value); return true })
 
   // -- General --
   ipcMain.handle('open-settings-window', () => {
@@ -1563,31 +2006,49 @@ function setupIPC() {
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
-app.whenReady().then(() => {
-  // Load qimo modules
+app.whenReady().then(async () => {
+  // Load electron-store (used as migration source only)
   store = require('./store')
-  todoLogic = require('./todo-logic')
-  diaryLogic = require('./diary-logic')
-  stockLogic = require('./stock-logic')
-  db = require('./db')
 
-  if (!store.get('alicloud.speechKey')) {
-    store.set('alicloud.speechKey', 'sk-0baec11198694fde9ee9bb632ce619f9')
+  // Initialize DB schema (idempotent CREATE TABLE IF NOT EXISTS)
+  const { ensureSchema } = require('./schema')
+  await ensureSchema()
+
+  // One-time migration: electron-store + files → MySQL
+  const { migrateFromStore } = require('./migrate-to-db')
+  await migrateFromStore(store)
+
+  // Initialize settings cache from DB
+  const configDB = require('./config-db')
+  const dbSettings = await configDB.getConfig('settings')
+  if (!dbSettings) {
+    const fileSettings = readJSON(getUserDataPath('settings.json'), {})
+    const merged = { ...DEFAULT_SETTINGS, ...fileSettings }
+    await configDB.setConfig('settings', merged)
+    settingsCache = merged
+  } else {
+    settingsCache = { ...DEFAULT_SETTINGS, ...dbSettings }
   }
 
-  // Migrate: ensure new default shortcuts exist in user's config
-  const cfg = store.get('modeShortcutConfig')
-  if (cfg && cfg.shortcuts) {
-    const defaultShortcuts = [
-      { id: 'todo-add', modeId: 'todo', label: '新增待办', icon: '➕', actionType: 'addTodo', order: 1, enabled: true },
-      { id: 'todo-voice', modeId: 'todo', label: '语音录入', icon: '🎤', actionType: 'voiceTodo', order: 2, enabled: true },
-    ]
-    const existingIds = new Set(cfg.shortcuts.map(s => s.id))
-    const missing = defaultShortcuts.filter(s => !existingIds.has(s.id))
-    if (missing.length > 0) {
-      cfg.shortcuts.push(...missing)
-      store.set('modeShortcutConfig', cfg)
-    }
+  // Initialize commands cache from DB
+  const commandDB = require('./command-db')
+  const dbCmds = await commandDB.getCommands()
+  if (dbCmds.length === 0) {
+    const filePath = getUserDataPath('commands.json')
+    const fileCmds = fs.existsSync(filePath) ? readJSON(filePath, DEFAULT_COMMANDS) : DEFAULT_COMMANDS
+    await commandDB.saveCommands(fileCmds)
+    commandsCache = await commandDB.getCommands()
+  } else {
+    commandsCache = dbCmds
+  }
+
+  // Ensure alicloud config exists in DB
+  const alicloud = await configDB.getConfig('alicloud')
+  if (!alicloud || !alicloud.speechKey) {
+    await configDB.setConfig('alicloud', {
+      ...(alicloud || {}),
+      speechKey: alicloud?.speechKey || 'sk-0baec11198694fde9ee9bb632ce619f9',
+    })
   }
 
   setupIPC()
@@ -1603,8 +2064,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async () => {
   stopProcessMonitor()
-  if (db) {
-    try { await db.closePool() } catch {}
-  }
+  try {
+    const { closePool } = require('./db')
+    await closePool()
+  } catch {}
   if (tray) tray.destroy()
 })
