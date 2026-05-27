@@ -42,6 +42,7 @@ let commandsCache = null
 let todoWindow = null
 let diaryWindow = null
 let stockWindow = null
+let stickyNoteWindow = null
 let recordingWindow = null
 let pendingRecordingResults = null
 
@@ -654,7 +655,7 @@ function startProcessMonitor() {
   if (processMonitorTimer) return
 
   processMonitorTimer = setInterval(() => {
-    const psCommand = `Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object ProcessName, MainWindowTitle, Id | ConvertTo-Json`
+    const psCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object ProcessName, MainWindowTitle, Id | ConvertTo-Json`
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand], { timeout: 5000 }, (err, stdout) => {
       if (err || !stdout) return
 
@@ -877,7 +878,7 @@ function createMainWindow() {
   mainWindow.setIgnoreMouseEvents(true, { forward: true })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5174')
+    mainWindow.loadURL('http://localhost:9001')
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
@@ -916,7 +917,12 @@ function createSettingsWindow() {
   })
 
   if (isDev) {
-    settingsWindow.loadURL('http://localhost:5174#/settings')
+    settingsWindow.loadURL('http://localhost:9001#/settings')
+    settingsWindow.webContents.on('before-input-event', (_e, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+        settingsWindow.webContents.toggleDevTools()
+      }
+    })
   } else {
     settingsWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: '/settings',
@@ -951,7 +957,12 @@ function createSubWindow(hashRoute, width, height) {
   win.setMenu(null)
 
   if (isDev) {
-    win.loadURL(`http://localhost:5174#${hashRoute}`)
+    win.loadURL(`http://localhost:9001#${hashRoute}`)
+    win.webContents.on('before-input-event', (_e, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+        win.webContents.toggleDevTools()
+      }
+    })
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: hashRoute,
@@ -987,6 +998,16 @@ function createStockWindow() {
   }
   stockWindow = createSubWindow('/stock', 800, 520)
   stockWindow.on('closed', () => { stockWindow = null })
+}
+
+function createStickyNoteWindow() {
+  if (stickyNoteWindow && !stickyNoteWindow.isDestroyed()) {
+    stickyNoteWindow.focus()
+    return
+  }
+  stickyNoteWindow = createSubWindow('/sticky', 360, 420)
+  stickyNoteWindow.setMinimumSize(280, 300)
+  stickyNoteWindow.on('closed', () => { stickyNoteWindow = null })
 }
 
 let chatWindow = null
@@ -1297,6 +1318,88 @@ function setupIPC() {
   ipcMain.handle('save-project', (_event, project) => require('./todo-db').saveProject(project))
   ipcMain.handle('delete-project', (_event, id) => require('./todo-db').deleteProject(id))
 
+  // -- Sticky Notes --
+  ipcMain.handle('get-sticky-notes', () => require('./sticky-db').getStickyNotes())
+  ipcMain.handle('save-sticky-note', (_event, note) => require('./sticky-db').saveStickyNote(note))
+  ipcMain.handle('delete-sticky-note', (_event, id) => require('./sticky-db').deleteStickyNote(id))
+  ipcMain.handle('open-sticky-note-window', () => createStickyNoteWindow())
+
+  ipcMain.handle('save-sticky-image', async (_event, noteId, dataUrl) => {
+    try {
+      const imgDir = path.join(app.getPath('userData'), 'sticky-images')
+      if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true })
+      const filename = `${noteId}_${Date.now()}.png`
+      const filePath = path.join(imgDir, filename)
+      const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+      return filePath
+    } catch (err) {
+      console.error('save-sticky-image error:', err)
+      return null
+    }
+  })
+
+  ipcMain.handle('get-sticky-image', async (_event, imagePath) => {
+    try {
+      if (!fs.existsSync(imagePath)) return null
+      const buf = fs.readFileSync(imagePath)
+      return `data:image/png;base64,${buf.toString('base64')}`
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('delete-sticky-image', async (_event, imagePath) => {
+    try {
+      if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('preview-sticky-image', async (_event, imagePath) => {
+    try {
+      if (!fs.existsSync(imagePath)) return false
+      const buf = fs.readFileSync(imagePath)
+      const dataUrl = `data:image/png;base64,${buf.toString('base64')}`
+      const display = screen.getPrimaryDisplay()
+      const workArea = display.workAreaSize
+      const winW = Math.round(workArea.width * 0.75)
+      const winH = Math.round(workArea.height * 0.75)
+      const previewWin = new BrowserWindow({
+        width: winW,
+        height: winH,
+        center: true,
+        frame: false,
+        transparent: true,
+        alwaysOnTop: true,
+        resizable: false,
+        skipTaskbar: true,
+        webPreferences: { nodeIntegration: true, contextIsolation: false },
+      })
+      previewWin.setMenu(null)
+      const html = `<!DOCTYPE html><html><head><style>
+        *{margin:0;padding:0}
+        body{background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;height:100vh;cursor:pointer;-webkit-app-region:no-drag}
+        img{max-width:92%;max-height:92%;object-fit:contain;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,0.6)}
+        .close{position:fixed;top:16px;right:16px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;backdrop-filter:blur(8px)}
+        .close:hover{background:rgba(255,255,255,0.3)}
+      </style></head><body>
+        <img src="${dataUrl}"/>
+        <button class="close" onclick="close()">✕</button>
+        <script>
+          document.body.addEventListener('click', (e) => { if(e.target.tagName!=='IMG') window.close() });
+          document.addEventListener('keydown', (e) => { if(e.key==='Escape') window.close() });
+        </script>
+      </body></html>`
+      previewWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      return true
+    } catch {
+      return false
+    }
+  })
+
   // -- Diary (MySQL, lazy-loaded) --
   function getDiaryLogic() {
     if (!diaryLogic) diaryLogic = require('./diary-logic')
@@ -1596,7 +1699,7 @@ function setupIPC() {
 
           const transUrl = results[0].transcription_url
           if (!transUrl) {
-            return { text: results[0].text || '' }
+            return { text: (results[0].text || '').replace(/<\|[^|]*\|>/g, '').trim() }
           }
 
           const transRes = await httpRequest(transUrl, { method: 'GET' })
@@ -1616,6 +1719,7 @@ function setupIPC() {
             text = transData.text
           }
 
+          text = text.replace(/<\|[^|]*\|>/g, '').trim()
           return { text }
         }
 
@@ -1698,6 +1802,7 @@ function setupIPC() {
   ipcMain.handle('save-shortcut-mode', (_event, mode) => require('./shortcut-db').saveMode(mode))
   ipcMain.handle('save-shortcut-item', (_event, item) => require('./shortcut-db').saveItem(item))
   ipcMain.handle('delete-shortcut-item', (_event, id) => require('./shortcut-db').deleteItem(id))
+  ipcMain.handle('set-active-mode-id', (_event, modeId) => require('./config-db').setConfig('activeModeId', modeId))
 
   // -- Sub windows --
   ipcMain.handle('open-todo-window', () => { createTodoWindow(); return true })
@@ -1981,6 +2086,28 @@ function setupIPC() {
   ipcMain.handle('get-recording-by-id', async (_event, id) => {
     if (!recordingDb) recordingDb = require('./recording-db')
     return recordingDb.getRecordingById(id)
+  })
+
+  ipcMain.handle('save-recording', async (_event, { sceneName, rawText, summary, todoSummary, audioBase64, duration }) => {
+    if (!recordingDb) recordingDb = require('./recording-db')
+    let audioPath = ''
+    if (audioBase64) {
+      const recordingsDir = path.join(app.getPath('userData'), 'TermiPet', 'recordings')
+      if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true })
+      const audioFileName = `rec-${Date.now()}.webm`
+      audioPath = path.join(recordingsDir, audioFileName)
+      fs.writeFileSync(audioPath, Buffer.from(audioBase64, 'base64'))
+    }
+    const id = await recordingDb.saveRecording({
+      sceneName: sceneName || '',
+      rawText: rawText || '',
+      summary: summary || '',
+      todoSummary: todoSummary || '',
+      audioPath,
+      duration: duration || 0,
+      createdAt: Date.now(),
+    })
+    return { id, audioPath }
   })
 
   ipcMain.handle('delete-recording', async (_event, id) => {

@@ -63,9 +63,17 @@ async function ensureSchema() {
       id VARCHAR(100) PRIMARY KEY,
       name VARCHAR(100) NOT NULL,
       color VARCHAR(20),
+      parent_id VARCHAR(100),
       created_at BIGINT NOT NULL
     )
   `)
+
+  // Migration: add parent_id if missing (existing installs)
+  try {
+    await query(`ALTER TABLE project ADD COLUMN parent_id VARCHAR(100)`)
+  } catch {
+    // column already exists
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS command (
@@ -90,6 +98,25 @@ async function ensureSchema() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS sticky_note (
+      id VARCHAR(100) PRIMARY KEY,
+      title VARCHAR(200),
+      content TEXT,
+      color VARCHAR(20) DEFAULT 'default',
+      pinned TINYINT(1) DEFAULT 0,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT
+    )
+  `)
+
+  // Migration: add blocks_json to sticky_note if missing
+  try {
+    await query(`ALTER TABLE sticky_note ADD COLUMN blocks_json TEXT`)
+  } catch {
+    // column already exists
+  }
+
   await query(`
     CREATE TABLE IF NOT EXISTS recording (
       id INT AUTO_INCREMENT PRIMARY KEY,

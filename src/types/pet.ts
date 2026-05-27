@@ -164,6 +164,7 @@ export interface Project {
   id: string
   name: string
   color: string
+  parentId?: string
   createdAt: number
 }
 
@@ -295,6 +296,7 @@ export interface ElectronAPI {
   // Settings
   getSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
+  testApiKey: (provider: string, key: string, endpoint: string) => Promise<{ success: boolean; error?: string }>
 
   // Active app
   onActiveAppChanged: (callback: (appName: string) => void) => () => void
@@ -381,11 +383,41 @@ export interface ElectronAPI {
   saveShortcutMode: (mode: ShortcutMode) => Promise<void>
   saveShortcutItem: (item: ModeShortcut) => Promise<void>
   deleteShortcutItem: (id: string) => Promise<void>
+  setActiveModeId: (modeId: string) => Promise<void>
+
+  // Sticky Notes
+  getStickyNotes: () => Promise<StickyNote[]>
+  saveStickyNote: (note: StickyNote) => Promise<StickyNote[] | null>
+  deleteStickyNote: (id: string) => Promise<StickyNote[] | null>
+  openStickyNoteWindow: () => Promise<void>
+  saveStickyImage: (noteId: string, dataUrl: string) => Promise<string | null>
+  getStickyImage: (imagePath: string) => Promise<string | null>
+  deleteStickyImage: (imagePath: string) => Promise<boolean>
+  previewStickyImage: (imagePath: string) => Promise<boolean>
 
   // Misc
   onPetChanged: (callback: (petId: string) => void) => () => void
   openSettingsWindow: () => Promise<void>
   quit: () => Promise<void>
+}
+
+// --- Sticky Note ---
+
+export type StickyNoteColor = 'default' | 'yellow' | 'blue' | 'green' | 'purple'
+
+export type StickyNoteBlock =
+  | { type: 'text'; content: string }
+  | { type: 'image'; path: string }
+
+export interface StickyNote {
+  id: string
+  title: string
+  content: string           // keep for backward compat (plain text fallback)
+  blocks: StickyNoteBlock[] // new: block-based content
+  color: StickyNoteColor
+  pinned: boolean
+  createdAt: number
+  updatedAt?: number
 }
 
 // --- Recording / Scene ---
@@ -462,6 +494,7 @@ export type ShortcutActionType =
   | 'openSettingsWindow'
   | 'openRecordingWindow'
   | 'openRecordingPanel'
+  | 'openStickyNoteWindow'
   | 'executeCommand'
   | 'quit'
 

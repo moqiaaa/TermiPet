@@ -123,6 +123,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ocrTrade: (imageBase64) => ipcRenderer.invoke('ocr-trade', imageBase64),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
 
+  // Sticky Notes
+  getStickyNotes: () => ipcRenderer.invoke('get-sticky-notes'),
+  saveStickyNote: (note) => ipcRenderer.invoke('save-sticky-note', note),
+  deleteStickyNote: (id) => ipcRenderer.invoke('delete-sticky-note', id),
+  openStickyNoteWindow: () => ipcRenderer.invoke('open-sticky-note-window'),
+  saveStickyImage: (noteId, dataUrl) => ipcRenderer.invoke('save-sticky-image', noteId, dataUrl),
+  getStickyImage: (imagePath) => ipcRenderer.invoke('get-sticky-image', imagePath),
+  deleteStickyImage: (imagePath) => ipcRenderer.invoke('delete-sticky-image', imagePath),
+  previewStickyImage: (imagePath) => ipcRenderer.invoke('preview-sticky-image', imagePath),
+
   // Todo reminder
   onTodoReminder: (cb) => {
     const handler = (_e, todo) => cb(todo)
@@ -147,6 +157,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveShortcutMode: (mode) => ipcRenderer.invoke('save-shortcut-mode', mode),
   saveShortcutItem: (item) => ipcRenderer.invoke('save-shortcut-item', item),
   deleteShortcutItem: (id) => ipcRenderer.invoke('delete-shortcut-item', id),
+  setActiveModeId: (modeId) => ipcRenderer.invoke('set-active-mode-id', modeId),
 
   // Sub windows
   openTodoWindow: () => ipcRenderer.invoke('open-todo-window'),
@@ -168,6 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   processPetRecording: (audioBase64, duration) => ipcRenderer.invoke('process-pet-recording', audioBase64, duration),
   getRecordingResults: () => ipcRenderer.invoke('get-recording-results'),
   openRecordingResults: () => ipcRenderer.invoke('open-recording-results'),
+  saveRecording: (data) => ipcRenderer.invoke('save-recording', data),
   getRecordings: (limit, offset) => ipcRenderer.invoke('get-recordings', limit, offset),
   getRecordingById: (id) => ipcRenderer.invoke('get-recording-by-id', id),
   deleteRecording: (id) => ipcRenderer.invoke('delete-recording', id),
