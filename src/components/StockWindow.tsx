@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { StockTrade, StockPosition, StockIndicator } from '../types/pet'
+import type { StockTrade, StockPosition, StockIndicator, StockStrategy, StockStrategyBinding } from '../types/pet'
 
-type Tab = 'trades' | 'positions'
+type Tab = 'trades' | 'positions' | 'strategies'
 
 interface OcrResult {
   stock_name?: string
@@ -47,6 +47,26 @@ export function StockWindow() {
   const [selectedPosition, setSelectedPosition] = useState<StockPosition | null>(null)
   const [indicators, setIndicators] = useState<StockIndicator[]>([])
 
+  // Notes editing
+  const [positionNotes, setPositionNotes] = useState('')
+  const [notesSaved, setNotesSaved] = useState(false)
+  const [showNotesModal, setShowNotesModal] = useState(false)
+  const [notesModalStock, setNotesModalStock] = useState<{ code: string; name: string } | null>(null)
+  const [modalNotes, setModalNotes] = useState('')
+  const [modalNotesSaved, setModalNotesSaved] = useState(false)
+
+  // Strategy state
+  const [strategies, setStrategies] = useState<StockStrategy[]>([])
+  const [selectedStrategy, setSelectedStrategy] = useState<StockStrategy | null>(null)
+  const [showStrategyForm, setShowStrategyForm] = useState(false)
+  const [strategyForm, setStrategyForm] = useState({ name: '', description: '', direction: 1 })
+  const [conditionForm, setConditionForm] = useState({ indicator_name: '', operator: '>', threshold: '' })
+  const [positionBindings, setPositionBindings] = useState<StockStrategyBinding[]>([])
+
+  // Trade form strategy
+  const [tradeStrategies, setTradeStrategies] = useState<StockStrategy[]>([])
+  const [selectedTradeStrategy, setSelectedTradeStrategy] = useState<number | undefined>()
+
   const loadTrades = useCallback(async () => {
     const list = await window.electronAPI?.getTrades({
       keyword: keyword || undefined,
@@ -63,10 +83,22 @@ export function StockWindow() {
     setPositions(list || [])
   }, [keyword])
 
+  const loadStrategies = useCallback(async () => {
+    const list = await window.electronAPI?.getStrategies()
+    setStrategies(list || [])
+  }, [])
+
   useEffect(() => {
-    if (tab === 'trades') loadTrades()
-    else loadPositions()
-  }, [tab, loadTrades, loadPositions])
+    if (tab === 'trades') { loadTrades(); loadStrategies() }
+    else if (tab === 'positions') loadPositions()
+    else if (tab === 'strategies') loadStrategies()
+  }, [tab, loadTrades, loadPositions, loadStrategies])
+
+  useEffect(() => {
+    if (showTradeForm) {
+      window.electronAPI?.getStrategies().then((list: StockStrategy[]) => setTradeStrategies(list || []))
+    }
+  }, [showTradeForm])
 
   const handleSaveTrade = async () => {
     if (!tradeForm.stock_code || !tradeForm.stock_name || !tradeForm.price || !tradeForm.quantity) return
@@ -83,6 +115,15 @@ export function StockWindow() {
       review: tradeForm.review || null,
       correct: tradeForm.correct,
     })
+    // Auto-bind strategy if selected
+    if (selectedTradeStrategy && tradeForm.stock_code && tradeForm.stock_name) {
+      await window.electronAPI?.saveBinding({
+        strategy_id: selectedTradeStrategy,
+        stock_code: tradeForm.stock_code,
+        stock_name: tradeForm.stock_name,
+      })
+    }
+    setSelectedTradeStrategy(undefined)
     setShowTradeForm(false)
     resetTradeForm()
     loadTrades()
@@ -97,7 +138,7 @@ export function StockWindow() {
   const handleEditTrade = (t: StockTrade) => {
     setTradeForm({
       id: t.id,
-      trade_date: t.trade_date || '',
+      trade_date: t.trade_date instanceof Date ? t.trade_date.toISOString().slice(0, 10) : (t.trade_date || ''),
       stock_code: t.stock_code,
       stock_name: t.stock_name,
       direction: t.direction,
@@ -129,8 +170,44 @@ export function StockWindow() {
 
   const handleSelectPosition = async (pos: StockPosition) => {
     setSelectedPosition(pos)
+    setPositionNotes(pos.notes || '')
+    setNotesSaved(false)
     const inds = await window.electronAPI?.getIndicators(pos.stock_code)
     setIndicators(inds || [])
+    const binds = await window.electronAPI?.getBindingsByStock(pos.stock_code)
+    setPositionBindings(binds || [])
+  }
+
+  const handleSavePositionNotes = async () => {
+    if (!selectedPosition) return
+    const updated = await window.electronAPI?.saveStockNotes(selectedPosition.stock_code, positionNotes)
+    if (updated) {
+      setSelectedPosition(updated)
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+      loadPositions()
+    }
+  }
+
+  const handleOpenNotesModal = async (stockCode: string, stockName: string) => {
+    const pos = await window.electronAPI?.getPositionByStockCode(stockCode)
+    if (!pos) return
+    setNotesModalStock({ code: stockCode, name: stockName })
+    setModalNotes(pos.notes || '')
+    setModalNotesSaved(false)
+    setShowNotesModal(true)
+  }
+
+  const handleSaveModalNotes = async () => {
+    if (!notesModalStock) return
+    await window.electronAPI?.saveStockNotes(notesModalStock.code, modalNotes)
+    setModalNotesSaved(true)
+    setTimeout(() => setModalNotesSaved(false), 2000)
+    if (selectedPosition?.stock_code === notesModalStock.code) {
+      setPositionNotes(modalNotes)
+      setSelectedPosition(prev => prev ? { ...prev, notes: modalNotes || null } : null)
+    }
+    loadPositions()
   }
 
   const handleDeletePosition = async (id: number) => {
@@ -138,8 +215,74 @@ export function StockWindow() {
     if (selectedPosition?.id === id) {
       setSelectedPosition(null)
       setIndicators([])
+      setPositionBindings([])
     }
     loadPositions()
+  }
+
+  const handleSelectStrategy = async (s: StockStrategy) => {
+    const full = await window.electronAPI?.getStrategyById(s.id)
+    setSelectedStrategy(full || null)
+  }
+
+  const handleSaveStrategy = async () => {
+    if (!strategyForm.name) return
+    const saved = await window.electronAPI?.saveStrategy({
+      id: selectedStrategy?.id,
+      name: strategyForm.name,
+      description: strategyForm.description || null,
+      direction: strategyForm.direction,
+    })
+    setShowStrategyForm(false)
+    loadStrategies()
+    if (saved) handleSelectStrategy(saved)
+  }
+
+  const handleDeleteStrategy = async (id: number) => {
+    await window.electronAPI?.deleteStrategy(id)
+    if (selectedStrategy?.id === id) setSelectedStrategy(null)
+    loadStrategies()
+  }
+
+  const handleAddCondition = async () => {
+    if (!selectedStrategy || !conditionForm.indicator_name || !conditionForm.threshold) return
+    await window.electronAPI?.saveCondition({
+      strategy_id: selectedStrategy.id,
+      indicator_name: conditionForm.indicator_name,
+      operator: conditionForm.operator,
+      threshold: conditionForm.threshold,
+    })
+    setConditionForm({ indicator_name: '', operator: '>', threshold: '' })
+    handleSelectStrategy(selectedStrategy)
+  }
+
+  const handleDeleteCondition = async (id: number) => {
+    await window.electronAPI?.deleteCondition(id)
+    if (selectedStrategy) handleSelectStrategy(selectedStrategy)
+  }
+
+  const handleBindStrategy = async (strategyId: number, stockCode: string, stockName: string) => {
+    await window.electronAPI?.saveBinding({ strategy_id: strategyId, stock_code: stockCode, stock_name: stockName })
+    const binds = await window.electronAPI?.getBindingsByStock(stockCode)
+    setPositionBindings(binds || [])
+    loadStrategies()
+  }
+
+  const handleToggleBinding = async (id: number, enabled: boolean) => {
+    await window.electronAPI?.toggleBinding(id, enabled)
+    if (selectedPosition) {
+      const binds = await window.electronAPI?.getBindingsByStock(selectedPosition.stock_code)
+      setPositionBindings(binds || [])
+    }
+  }
+
+  const handleDeleteBinding = async (id: number) => {
+    await window.electronAPI?.deleteBinding(id)
+    if (selectedPosition) {
+      const binds = await window.electronAPI?.getBindingsByStock(selectedPosition.stock_code)
+      setPositionBindings(binds || [])
+    }
+    loadStrategies()
   }
 
   // OCR functions
@@ -232,6 +375,7 @@ export function StockWindow() {
       <div className="stock-tabs">
         <button className={tab === 'trades' ? 'active' : ''} onClick={() => setTab('trades')}>交易记录</button>
         <button className={tab === 'positions' ? 'active' : ''} onClick={() => setTab('positions')}>持仓</button>
+        <button className={tab === 'strategies' ? 'active' : ''} onClick={() => setTab('strategies')}>策略</button>
       </div>
 
       {tab === 'trades' && (
@@ -270,6 +414,15 @@ export function StockWindow() {
                 <input value={tradeForm.price} onChange={e => setTradeForm({ ...tradeForm, price: e.target.value })} placeholder="价格" type="number" step="0.01" />
                 <input value={tradeForm.quantity} onChange={e => setTradeForm({ ...tradeForm, quantity: e.target.value })} placeholder="数量" type="number" />
               </div>
+              <div className="strategy-select-row">
+                <label>使用策略</label>
+                <select value={selectedTradeStrategy || ''} onChange={e => setSelectedTradeStrategy(e.target.value ? Number(e.target.value) : undefined)}>
+                  <option value="">— 不选择 —</option>
+                  {tradeStrategies.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}（{s.direction === 1 ? '买入' : '卖出'}）</option>
+                  ))}
+                </select>
+              </div>
               <textarea value={tradeForm.reason} onChange={e => setTradeForm({ ...tradeForm, reason: e.target.value })} placeholder="买卖理由" rows={2} />
               <textarea value={tradeForm.review} onChange={e => setTradeForm({ ...tradeForm, review: e.target.value })} placeholder="复盘反思" rows={2} />
               <div className="correct-toggle">
@@ -295,6 +448,7 @@ export function StockWindow() {
                 <th>方向</th>
                 <th>价格</th>
                 <th>数量</th>
+                <th>理由</th>
                 <th>评价</th>
                 <th>复盘</th>
                 <th>操作</th>
@@ -303,12 +457,13 @@ export function StockWindow() {
             <tbody>
               {trades.map(t => (
                 <tr key={t.id}>
-                  <td>{t.trade_date}</td>
+                  <td>{t.trade_date instanceof Date ? t.trade_date.toLocaleDateString('zh-CN') : t.trade_date}</td>
                   <td>{t.stock_code}</td>
                   <td>{t.stock_name}</td>
                   <td className={t.direction === 1 ? 'buy' : 'sell'}>{t.direction === 1 ? '买入' : '卖出'}</td>
                   <td>{t.price}</td>
                   <td>{t.quantity}</td>
+                  <td className="reason-cell" title={t.reason || ''}>{t.reason || '—'}</td>
                   <td className={t.correct === 1 ? 'correct-yes' : t.correct === 0 ? 'correct-no' : ''}>{t.correct === 1 ? '✓' : t.correct === 0 ? '✗' : '—'}</td>
                   <td className="review-cell" title={t.review || ''}>{t.review || '—'}</td>
                   <td>
@@ -318,7 +473,7 @@ export function StockWindow() {
                 </tr>
               ))}
               {trades.length === 0 && (
-                <tr><td colSpan={9} className="empty-row">暂无交易记录</td></tr>
+                <tr><td colSpan={10} className="empty-row">暂无交易记录</td></tr>
               )}
             </tbody>
           </table>
@@ -391,6 +546,145 @@ export function StockWindow() {
                     ))}
                   </div>
                 )}
+
+                <div className="position-bindings">
+                  <h4>已绑定策略</h4>
+                  {positionBindings.length > 0 ? positionBindings.map(b => (
+                    <div key={b.id} className="binding-ctrl-row">
+                      <span className="binding-name">{b.strategy_name} <span className={`direction-tag ${b.strategy_direction === 1 ? 'buy' : 'sell'}`}>{b.strategy_direction === 1 ? '买入' : '卖出'}</span></span>
+                      <div className="binding-ctrl-right">
+                        <label className="binding-toggle">
+                          <input type="checkbox" checked={b.enabled === 1} onChange={e => handleToggleBinding(b.id, e.target.checked)} />
+                          <span>{b.enabled ? '启用' : '暂停'}</span>
+                        </label>
+                        <button className="table-btn danger" onClick={() => handleDeleteBinding(b.id)}>解绑</button>
+                      </div>
+                    </div>
+                  )) : <div className="empty-hint">未绑定策略</div>}
+                  <div className="bind-add-row">
+                    <select id="bind-strategy-select" defaultValue="">
+                      <option value="">选择策略...</option>
+                      {strategies.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}（{s.direction === 1 ? '买入' : '卖出'}）</option>
+                      ))}
+                    </select>
+                    <button className="table-btn" onClick={() => {
+                      const sel = document.getElementById('bind-strategy-select') as HTMLSelectElement
+                      if (sel.value && selectedPosition) {
+                        handleBindStrategy(Number(sel.value), selectedPosition.stock_code, selectedPosition.stock_name)
+                        sel.value = ''
+                      }
+                    }}>绑定</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'strategies' && (
+        <div className="stock-strategies-panel">
+          <div className="stock-filter-row">
+            <button className="add-btn" onClick={() => {
+              setStrategyForm({ name: '', description: '', direction: 1 })
+              setShowStrategyForm(true)
+              setSelectedStrategy(null)
+            }}>+ 新建策略</button>
+          </div>
+
+          {showStrategyForm && (
+            <div className="trade-form">
+              <div className="trade-form-grid">
+                <input value={strategyForm.name} onChange={e => setStrategyForm({ ...strategyForm, name: e.target.value })} placeholder="策略名称" />
+                <div className="direction-toggle">
+                  <button className={strategyForm.direction === 1 ? 'active buy' : ''} onClick={() => setStrategyForm({ ...strategyForm, direction: 1 })}>买入信号</button>
+                  <button className={strategyForm.direction === 2 ? 'active sell' : ''} onClick={() => setStrategyForm({ ...strategyForm, direction: 2 })}>卖出信号</button>
+                </div>
+              </div>
+              <textarea value={strategyForm.description} onChange={e => setStrategyForm({ ...strategyForm, description: e.target.value })} placeholder="策略描述" rows={2} />
+              <div className="trade-form-actions">
+                <button onClick={handleSaveStrategy}>保存</button>
+                <button onClick={() => setShowStrategyForm(false)}>取消</button>
+              </div>
+            </div>
+          )}
+
+          <div className="positions-layout">
+            <div className="strategy-list">
+              {strategies.map(s => (
+                <div
+                  key={s.id}
+                  className={`strategy-item ${selectedStrategy?.id === s.id ? 'selected' : ''}`}
+                  onClick={() => handleSelectStrategy(s)}
+                >
+                  <div className="strategy-item-header">
+                    <span className="strategy-name">{s.name}</span>
+                    <span className={`direction-tag ${s.direction === 1 ? 'buy' : 'sell'}`}>{s.direction === 1 ? '买入' : '卖出'}</span>
+                  </div>
+                  <div className="strategy-item-meta">
+                    <span>{s.conditions?.length || 0} 个条件</span>
+                    <span>{s.bindingCount || 0} 只股票</span>
+                  </div>
+                </div>
+              ))}
+              {strategies.length === 0 && <div className="empty-row">暂无策略</div>}
+            </div>
+
+            {selectedStrategy && (
+              <div className="position-detail strategy-detail">
+                <div className="strategy-detail-header">
+                  <h3>{selectedStrategy.name}</h3>
+                  <div>
+                    <button className="table-btn" onClick={() => {
+                      setStrategyForm({
+                        name: selectedStrategy.name,
+                        description: selectedStrategy.description || '',
+                        direction: selectedStrategy.direction,
+                      })
+                      setShowStrategyForm(true)
+                    }}>编辑</button>
+                    <button className="table-btn danger" onClick={() => handleDeleteStrategy(selectedStrategy.id)}>删除</button>
+                  </div>
+                </div>
+                {selectedStrategy.description && <p className="position-notes">{selectedStrategy.description}</p>}
+                <span className={`direction-tag ${selectedStrategy.direction === 1 ? 'buy' : 'sell'}`}>
+                  {selectedStrategy.direction === 1 ? '买入信号' : '卖出信号'}
+                </span>
+
+                <div className="indicators">
+                  <h4>条件</h4>
+                  {selectedStrategy.conditions?.map(c => (
+                    <div key={c.id} className="indicator-item">
+                      <span className="indicator-name">{c.indicator_name}</span>
+                      <span className="indicator-value">{c.operator} {c.threshold}</span>
+                      <button className="table-btn danger" onClick={() => handleDeleteCondition(c.id)}>×</button>
+                    </div>
+                  ))}
+                  <div className="condition-add-row">
+                    <input value={conditionForm.indicator_name} onChange={e => setConditionForm({ ...conditionForm, indicator_name: e.target.value })} placeholder="指标名" />
+                    <select value={conditionForm.operator} onChange={e => setConditionForm({ ...conditionForm, operator: e.target.value })}>
+                      <option value=">">{'>'}</option>
+                      <option value="<">{'<'}</option>
+                      <option value=">=">{'>='}</option>
+                      <option value="<=">{'<='}</option>
+                      <option value="=">{'='}</option>
+                      <option value="!=">{'!='}</option>
+                    </select>
+                    <input value={conditionForm.threshold} onChange={e => setConditionForm({ ...conditionForm, threshold: e.target.value })} placeholder="阈值" />
+                    <button className="add-btn" onClick={handleAddCondition}>+</button>
+                  </div>
+                </div>
+
+                <div className="indicators">
+                  <h4>已绑定股票</h4>
+                  {selectedStrategy.bindings && selectedStrategy.bindings.length > 0 ? selectedStrategy.bindings.map(b => (
+                    <div key={b.id} className="indicator-item">
+                      <span className="indicator-name">{b.stock_name}({b.stock_code})</span>
+                      <span className="indicator-value">{b.enabled ? '启用' : '暂停'}</span>
+                    </div>
+                  )) : <div className="empty-hint">在交易记录或持仓中绑定策略</div>}
+                </div>
               </div>
             )}
           </div>

@@ -367,6 +367,17 @@ export interface ElectronAPI {
   deleteIndicator: (id: number) => Promise<boolean>
   ocrTrade: (imageBase64: string) => Promise<{ data?: Record<string, unknown>; error?: string }>
   captureScreen: () => Promise<{ data?: string; cancelled?: boolean; error?: string }>
+  // Stock Strategy
+  getStrategies: () => Promise<StockStrategy[]>
+  getStrategyById: (id: number) => Promise<StockStrategy | null>
+  saveStrategy: (s: Partial<StockStrategy>) => Promise<StockStrategy | null>
+  deleteStrategy: (id: number) => Promise<boolean>
+  saveCondition: (c: Partial<StockStrategyCondition>) => Promise<StockStrategyCondition | null>
+  deleteCondition: (id: number) => Promise<boolean>
+  saveBinding: (b: { strategy_id: number; stock_code: string; stock_name: string }) => Promise<StockStrategyBinding | null>
+  getBindingsByStock: (stockCode: string) => Promise<StockStrategyBinding[]>
+  toggleBinding: (id: number, enabled: boolean) => Promise<boolean>
+  deleteBinding: (id: number) => Promise<boolean>
 
   // Todo reminder
   onTodoReminder: (callback: (todo: Todo) => void) => () => void
