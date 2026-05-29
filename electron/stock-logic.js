@@ -382,35 +382,92 @@ async function getIndicatorDefs(scope) {
     params.push(scope)
   }
   sql += ' ORDER BY created_at DESC'
-  return db.query(sql, params)
+  const defs = await db.query(sql, params)
+  for (const d of defs) {
+    if (d.type === 'composite') {
+      d.conditions = await db.query('SELECT * FROM stock_indicator_condition WHERE indicator_def_id = ? ORDER BY id', [d.id])
+    }
+  }
+  return defs
 }
 
 async function getIndicatorDefById(id) {
   const rows = await db.query('SELECT * FROM stock_indicator_def WHERE id = ?', [id])
-  return rows[0] || null
+  const def = rows[0] || null
+  if (def && def.type === 'composite') {
+    def.conditions = await db.query('SELECT * FROM stock_indicator_condition WHERE indicator_def_id = ? ORDER BY id', [id])
+  }
+  return def
 }
 
-async function saveIndicatorDef({ id, name, scope, value_type, description }) {
+async function saveIndicatorDef({ id, name, scope, value_type, type, description }) {
   if (!name) return null
   if (id) {
     await db.query(
-      'UPDATE stock_indicator_def SET name=?, scope=?, value_type=?, description=?, updated_at=NOW() WHERE id=?',
-      [name, scope || 'stock', value_type || 'number', description || null, id]
+      'UPDATE stock_indicator_def SET name=?, scope=?, value_type=?, type=?, description=?, updated_at=NOW() WHERE id=?',
+      [name, scope || 'stock', value_type || 'number', type || 'basic', description || null, id]
     )
     return getIndicatorDefById(id)
   }
   const newId = Date.now()
   await db.query(
-    'INSERT INTO stock_indicator_def (id, name, scope, value_type, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
-    [newId, name, scope || 'stock', value_type || 'number', description || null]
+    'INSERT INTO stock_indicator_def (id, name, scope, value_type, type, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())',
+    [newId, name, scope || 'stock', value_type || 'number', type || 'basic', description || null]
   )
   return getIndicatorDefById(newId)
 }
 
 async function deleteIndicatorDef(id) {
   if (!id) return false
+  await db.query('DELETE FROM stock_indicator_condition WHERE indicator_def_id = ?', [id])
   const result = await db.query('DELETE FROM stock_indicator_def WHERE id = ?', [id])
   return result.affectedRows > 0
+}
+
+// ========== stock_indicator_condition ==========
+
+async function saveIndicatorCondition({ id, indicator_def_id, indicator_name, operator, threshold }) {
+  if (!indicator_def_id || !indicator_name || !operator || threshold === undefined || threshold === null) return null
+  if (id) {
+    await db.query(
+      'UPDATE stock_indicator_condition SET indicator_name=?, operator=?, threshold=? WHERE id=?',
+      [indicator_name, operator, String(threshold), id]
+    )
+    const rows = await db.query('SELECT * FROM stock_indicator_condition WHERE id = ?', [id])
+    return rows[0] || null
+  }
+  const newId = Date.now()
+  await db.query(
+    'INSERT INTO stock_indicator_condition (id, indicator_def_id, indicator_name, operator, threshold, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+    [newId, indicator_def_id, indicator_name, operator, String(threshold)]
+  )
+  const rows = await db.query('SELECT * FROM stock_indicator_condition WHERE id = ?', [newId])
+  return rows[0] || null
+}
+
+async function deleteIndicatorCondition(id) {
+  if (!id) return false
+  const result = await db.query('DELETE FROM stock_indicator_condition WHERE id = ?', [id])
+  return result.affectedRows > 0
+}
+
+async function evaluateCompositeIndicator(indicatorDefId, stockCode) {
+  const def = await getIndicatorDefById(indicatorDefId)
+  if (!def || def.type !== 'composite') return null
+  const conditions = def.conditions || []
+  if (conditions.length === 0) return null
+  const indicators = await db.query('SELECT name, value FROM stock_indicator WHERE stock_code = ?', [stockCode])
+  const indicatorMap = {}
+  for (const ind of indicators) { indicatorMap[ind.name] = ind.value }
+  let allMet = true
+  for (const cond of conditions) {
+    const currentValue = indicatorMap[cond.indicator_name]
+    if (!compareValues(currentValue, cond.operator, cond.threshold)) {
+      allMet = false
+      break
+    }
+  }
+  return allMet ? '是' : '否'
 }
 
 module.exports = {
@@ -421,5 +478,6 @@ module.exports = {
   saveCondition, deleteCondition,
   getBindingsByStrategy, getBindingsByStock, saveBinding, toggleBinding, deleteBinding,
   checkStrategyConditions,
-  getIndicatorDefs, getIndicatorDefById, saveIndicatorDef, deleteIndicatorDef
+  getIndicatorDefs, getIndicatorDefById, saveIndicatorDef, deleteIndicatorDef,
+  saveIndicatorCondition, deleteIndicatorCondition, evaluateCompositeIndicator
 }

@@ -1466,6 +1466,9 @@ function setupIPC() {
   ipcMain.handle('get-indicator-def-by-id', (_event, id) => getStockLogic().getIndicatorDefById(id))
   ipcMain.handle('save-indicator-def', (_event, data) => getStockLogic().saveIndicatorDef(data))
   ipcMain.handle('delete-indicator-def', (_event, id) => getStockLogic().deleteIndicatorDef(id))
+  ipcMain.handle('save-indicator-condition', (_event, data) => getStockLogic().saveIndicatorCondition(data))
+  ipcMain.handle('delete-indicator-condition', (_event, id) => getStockLogic().deleteIndicatorCondition(id))
+  ipcMain.handle('evaluate-composite-indicator', (_event, defId, stockCode) => getStockLogic().evaluateCompositeIndicator(defId, stockCode))
 
   // -- Stock OCR --
   ipcMain.handle('ocr-trade', async (_event, imageBase64) => {

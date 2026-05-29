@@ -139,6 +139,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getIndicatorDefById: (id) => ipcRenderer.invoke('get-indicator-def-by-id', id),
   saveIndicatorDef: (data) => ipcRenderer.invoke('save-indicator-def', data),
   deleteIndicatorDef: (id) => ipcRenderer.invoke('delete-indicator-def', id),
+  saveIndicatorCondition: (data) => ipcRenderer.invoke('save-indicator-condition', data),
+  deleteIndicatorCondition: (id) => ipcRenderer.invoke('delete-indicator-condition', id),
+  evaluateCompositeIndicator: (defId, stockCode) => ipcRenderer.invoke('evaluate-composite-indicator', defId, stockCode),
   ocrTrade: (imageBase64) => ipcRenderer.invoke('ocr-trade', imageBase64),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
 

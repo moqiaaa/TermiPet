@@ -174,6 +174,24 @@ async function ensureSchema() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `)
+
+  // Migration: add type to stock_indicator_def
+  try {
+    await query(`ALTER TABLE stock_indicator_def ADD COLUMN type VARCHAR(10) NOT NULL DEFAULT 'basic'`)
+  } catch {
+    // column already exists
+  }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_indicator_condition (
+      id BIGINT PRIMARY KEY,
+      indicator_def_id BIGINT NOT NULL,
+      indicator_name VARCHAR(50) NOT NULL,
+      operator VARCHAR(10) NOT NULL,
+      threshold VARCHAR(50) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
 }
 
 module.exports = { ensureSchema }
