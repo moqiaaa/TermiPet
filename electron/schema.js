@@ -129,6 +129,39 @@ async function ensureSchema() {
       created_at BIGINT NOT NULL
     )
   `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_strategy (
+      id BIGINT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      description TEXT,
+      direction TINYINT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_strategy_condition (
+      id BIGINT PRIMARY KEY,
+      strategy_id BIGINT NOT NULL,
+      indicator_name VARCHAR(50) NOT NULL,
+      operator VARCHAR(10) NOT NULL,
+      threshold VARCHAR(50) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_strategy_binding (
+      id BIGINT PRIMARY KEY,
+      strategy_id BIGINT NOT NULL,
+      stock_code VARCHAR(20) NOT NULL,
+      stock_name VARCHAR(50) NOT NULL,
+      enabled TINYINT(1) DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
 }
 
 module.exports = { ensureSchema }
