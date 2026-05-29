@@ -266,9 +266,20 @@ export interface StockIndicatorDef {
   name: string
   scope: 'stock' | 'market'
   value_type: 'number' | 'text'
+  type: 'basic' | 'composite'
   description: string | null
+  conditions?: StockIndicatorCondition[]
   created_at: string
   updated_at: string
+}
+
+export interface StockIndicatorCondition {
+  id: number
+  indicator_def_id: number
+  indicator_name: string
+  operator: string
+  threshold: string
+  created_at: string
 }
 
 export interface DroppedFile {
@@ -388,6 +399,9 @@ export interface ElectronAPI {
   getBindingsByStock: (stockCode: string) => Promise<StockStrategyBinding[]>
   toggleBinding: (id: number, enabled: boolean) => Promise<boolean>
   deleteBinding: (id: number) => Promise<boolean>
+  getIndicatorDefById: (id: number) => Promise<StockIndicatorDef | null>
+  saveIndicatorCondition: (c: Partial<StockIndicatorCondition>) => Promise<StockIndicatorCondition | null>
+  deleteIndicatorCondition: (id: number) => Promise<boolean>
 
   // Todo reminder
   onTodoReminder: (callback: (todo: Todo) => void) => () => void

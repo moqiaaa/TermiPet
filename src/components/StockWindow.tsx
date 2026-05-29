@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { StockTrade, StockPosition, StockIndicator, StockStrategy, StockStrategyCondition, StockStrategyBinding, StockIndicatorDef } from '../types/pet'
+import type { StockTrade, StockPosition, StockIndicator, StockStrategy, StockStrategyCondition, StockStrategyBinding, StockIndicatorDef, StockIndicatorCondition } from '../types/pet'
 
 type Tab = 'trades' | 'positions' | 'strategies' | 'indicators'
 
@@ -72,7 +72,8 @@ export function StockWindow() {
   const [indicatorScope, setIndicatorScope] = useState<string>('')
   const [selectedIndicatorDef, setSelectedIndicatorDef] = useState<StockIndicatorDef | null>(null)
   const [showIndicatorDefForm, setShowIndicatorDefForm] = useState(false)
-  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, description: '' })
+  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, type: 'basic' as string, description: '' })
+  const [indicatorCondForm, setIndicatorCondForm] = useState({ indicator_name: '', operator: '>', threshold: '' })
   const [indicatorRefStrategies, setIndicatorRefStrategies] = useState<{ strategy_name: string; operator: string; threshold: string; direction: number }[]>([])
   const [indicatorStockValues, setIndicatorStockValues] = useState<{ stock_code: string; stock_name: string; value: string | null }[]>([])
 
@@ -274,6 +275,7 @@ export function StockWindow() {
       name: indicatorDefForm.name,
       scope: indicatorDefForm.scope,
       value_type: indicatorDefForm.value_type,
+      type: indicatorDefForm.type,
       description: indicatorDefForm.description || null,
     })
     setShowIndicatorDefForm(false)
@@ -285,6 +287,28 @@ export function StockWindow() {
     await window.electronAPI?.deleteIndicatorDef(id)
     if (selectedIndicatorDef?.id === id) setSelectedIndicatorDef(null)
     loadIndicatorDefs()
+  }
+
+  const handleAddIndicatorCondition = async () => {
+    if (!selectedIndicatorDef || !indicatorCondForm.indicator_name || !indicatorCondForm.threshold) return
+    await window.electronAPI?.saveIndicatorCondition({
+      indicator_def_id: selectedIndicatorDef.id,
+      indicator_name: indicatorCondForm.indicator_name,
+      operator: indicatorCondForm.operator,
+      threshold: indicatorCondForm.threshold,
+    })
+    setIndicatorCondForm({ indicator_name: '', operator: '>', threshold: '' })
+    const updated = await window.electronAPI?.getIndicatorDefById(selectedIndicatorDef.id)
+    if (updated) setSelectedIndicatorDef(updated)
+    loadIndicatorDefs()
+  }
+
+  const handleDeleteIndicatorCondition = async (id: number) => {
+    await window.electronAPI?.deleteIndicatorCondition(id)
+    if (selectedIndicatorDef) {
+      const updated = await window.electronAPI?.getIndicatorDefById(selectedIndicatorDef.id)
+      if (updated) setSelectedIndicatorDef(updated)
+    }
   }
 
   const handleSelectStrategy = async (s: StockStrategy) => {
@@ -787,7 +811,7 @@ export function StockWindow() {
         <div className="stock-strategies-panel">
           <div className="stock-filter-row">
             <button className="add-btn" onClick={() => {
-              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', description: '' })
+              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', type: 'basic', description: '' })
               setShowIndicatorDefForm(true)
               setSelectedIndicatorDef(null)
             }}>+ 新建指标</button>
@@ -805,6 +829,10 @@ export function StockWindow() {
                 <div className="direction-toggle">
                   <button className={indicatorDefForm.scope === 'stock' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, scope: 'stock' })}>个股</button>
                   <button className={indicatorDefForm.scope === 'market' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, scope: 'market' })}>大盘</button>
+                </div>
+                <div className="direction-toggle">
+                  <button className={indicatorDefForm.type === 'basic' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, type: 'basic' })}>基础</button>
+                  <button className={indicatorDefForm.type === 'composite' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, type: 'composite', value_type: 'text' })}>组合</button>
                 </div>
                 <div className="direction-toggle">
                   <button className={indicatorDefForm.value_type === 'number' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, value_type: 'number' })}>数值</button>
@@ -832,7 +860,8 @@ export function StockWindow() {
                     <span className={`scope-tag ${d.scope}`}>{d.scope === 'market' ? '大盘' : '个股'}</span>
                   </div>
                   <div className="strategy-item-meta">
-                    <span>{d.value_type === 'number' ? '数值' : '文本'}</span>
+                    <span>{d.type === 'composite' ? '组合' : (d.value_type === 'number' ? '数值' : '文本')}</span>
+                    {d.type === 'composite' && d.conditions && <span>{d.conditions.length} 个子条件</span>}
                   </div>
                 </div>
               ))}
@@ -849,6 +878,7 @@ export function StockWindow() {
                         name: selectedIndicatorDef.name,
                         scope: selectedIndicatorDef.scope,
                         value_type: selectedIndicatorDef.value_type,
+                        type: selectedIndicatorDef.type || 'basic',
                         description: selectedIndicatorDef.description || '',
                       })
                       setShowIndicatorDefForm(true)
@@ -858,9 +888,43 @@ export function StockWindow() {
                 </div>
                 <div className="indicator-def-tags">
                   <span className={`scope-tag ${selectedIndicatorDef.scope}`}>{selectedIndicatorDef.scope === 'market' ? '大盘指标' : '个股指标'}</span>
-                  <span className="type-tag">{selectedIndicatorDef.value_type === 'number' ? '数值型' : '文本型'}</span>
+                  {selectedIndicatorDef.type === 'composite'
+                    ? <span className="type-tag composite">组合指标</span>
+                    : <span className="type-tag">{selectedIndicatorDef.value_type === 'number' ? '数值型' : '文本型'}</span>
+                  }
                 </div>
                 {selectedIndicatorDef.description && <p className="position-notes">{selectedIndicatorDef.description}</p>}
+
+                {selectedIndicatorDef.type === 'composite' && (
+                  <div className="indicators">
+                    <h4>组合条件</h4>
+                    {selectedIndicatorDef.conditions?.map(c => (
+                      <div key={c.id} className="indicator-item">
+                        <span className="indicator-name">{c.indicator_name}</span>
+                        <span className="indicator-value">{c.operator} {c.threshold}</span>
+                        <button className="table-btn danger" onClick={() => handleDeleteIndicatorCondition(c.id)}>×</button>
+                      </div>
+                    ))}
+                    <div className="condition-add-row">
+                      <select value={indicatorCondForm.indicator_name} onChange={e => setIndicatorCondForm({ ...indicatorCondForm, indicator_name: e.target.value })} className="condition-indicator-select">
+                        <option value="">选择指标...</option>
+                        {indicatorDefs.filter(d => d.type === 'basic' && d.id !== selectedIndicatorDef.id).map(d => (
+                          <option key={d.id} value={d.name}>{d.name}（{d.scope === 'market' ? '大盘' : '个股'}）</option>
+                        ))}
+                      </select>
+                      <select value={indicatorCondForm.operator} onChange={e => setIndicatorCondForm({ ...indicatorCondForm, operator: e.target.value })}>
+                        <option value=">">{'>'}</option>
+                        <option value="<">{'<'}</option>
+                        <option value=">=">{'>='}</option>
+                        <option value="<=">{'<='}</option>
+                        <option value="=">{'='}</option>
+                        <option value="!=">{'!='}</option>
+                      </select>
+                      <input value={indicatorCondForm.threshold} onChange={e => setIndicatorCondForm({ ...indicatorCondForm, threshold: e.target.value })} placeholder="阈值" />
+                      <button className="add-btn" onClick={handleAddIndicatorCondition}>+</button>
+                    </div>
+                  </div>
+                )}
 
                 {indicatorRefStrategies.length > 0 && (
                   <div className="indicators">

@@ -5586,3 +5586,8 @@ td.sell { color: #22c55e; }
 .direction-tag {
   display: inline-block;
 }
+
+.type-tag.composite {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
