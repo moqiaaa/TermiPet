@@ -229,6 +229,38 @@ export interface StockIndicator {
   updated_at: string
 }
 
+export interface StockStrategy {
+  id: number
+  name: string
+  description: string | null
+  direction: number
+  conditions: StockStrategyCondition[]
+  bindingCount?: number
+  bindings?: StockStrategyBinding[]
+  created_at: string
+  updated_at: string
+}
+
+export interface StockStrategyCondition {
+  id: number
+  strategy_id: number
+  indicator_name: string
+  operator: string
+  threshold: string
+  created_at: string
+}
+
+export interface StockStrategyBinding {
+  id: number
+  strategy_id: number
+  stock_code: string
+  stock_name: string
+  enabled: number
+  strategy_name?: string
+  strategy_direction?: number
+  created_at: string
+}
+
 export interface DroppedFile {
   type: 'image' | 'document'
   name: string
