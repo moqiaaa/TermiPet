@@ -1,10 +1,22 @@
 import { useEffect, useRef } from 'react'
 import type { Todo } from '../types/pet'
 
-interface TodoReminderProps {
-  todo: Todo | null
+export type ReminderItem = {
+  type: 'todo'
+  todo: Todo
+} | {
+  type: 'strategy'
+  id: string
+  title: string
+  note: string
+  priority: string
+  stock_code: string
+}
+
+interface ReminderProps {
+  item: ReminderItem | null
   onDismiss: (id: string) => void
-  onOpen: () => void
+  onOpen: (item: ReminderItem) => void
   onSnooze: (id: string, minutes: number) => void
 }
 
@@ -23,22 +35,52 @@ function formatReminderTime(todo: Todo) {
   })
 }
 
-export function TodoReminder({ todo, onDismiss, onOpen, onSnooze }: TodoReminderProps) {
+function getItemId(item: ReminderItem): string {
+  return item.type === 'todo' ? item.todo.id : item.id
+}
+
+export function TodoReminder({ item, onDismiss, onOpen, onSnooze }: ReminderProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!todo) return
-
+    if (!item) return
     timerRef.current = setTimeout(() => {
-      onDismiss(todo.id)
+      onDismiss(getItemId(item))
     }, AUTO_DISMISS_MS)
-
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [todo?.id, onDismiss])
+  }, [item && getItemId(item), onDismiss])
 
-  if (!todo) return null
+  if (!item) return null
+
+  const itemId = getItemId(item)
+
+  if (item.type === 'strategy') {
+    return (
+      <div className="todo-reminder-overlay">
+        <div className="todo-reminder-popover">
+          <div className="todo-reminder-head">
+            <div className="todo-reminder-icon">📈</div>
+            <div>
+              <div className="todo-reminder-title">策略触发</div>
+            </div>
+          </div>
+          <div className="todo-reminder-task">
+            <span>策略信号</span>
+            <strong>{item.title}</strong>
+            {item.note && <p style={{ whiteSpace: 'pre-line' }}>{item.note}</p>}
+          </div>
+          <div className="todo-reminder-actions">
+            <button className="primary" onClick={() => { onDismiss(itemId); onOpen(item) }}>打开持仓</button>
+            <button onClick={() => onDismiss(itemId)}>知道了</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const { todo } = item
 
   return (
     <div className="todo-reminder-overlay">
@@ -63,12 +105,7 @@ export function TodoReminder({ todo, onDismiss, onOpen, onSnooze }: TodoReminder
         </div>
 
         <div className="todo-reminder-actions">
-          <button
-            className="primary"
-            onClick={() => { onDismiss(todo.id); onOpen() }}
-          >
-            打开任务
-          </button>
+          <button className="primary" onClick={() => { onDismiss(todo.id); onOpen(item) }}>打开任务</button>
           <button onClick={() => onDismiss(todo.id)}>知道了</button>
         </div>
       </div>

@@ -8,7 +8,7 @@ import { CommandPanel } from './components/CommandPanel'
 import { ChatPanel } from './components/ChatPanel'
 import type { ChatPanelHandle } from './components/ChatPanel'
 import { ApprovalPrompt } from './components/ApprovalPrompt'
-import { TodoReminder } from './components/TodoReminder'
+import { TodoReminder, type ReminderItem } from './components/TodoReminder'
 import { QuotaCards } from './components/QuotaCard'
 import { SettingsWindow } from './components/SettingsWindow'
 import { TodoWindow } from './components/TodoWindow'
@@ -16,6 +16,7 @@ import { DiaryWindow } from './components/DiaryWindow'
 import { StockWindow } from './components/StockWindow'
 import { ChatWindow } from './components/ChatWindow'
 import { RecordingWindow } from './components/RecordingWindow'
+import { StickyNoteWindow } from './components/StickyNoteWindow'
 import { RecordingIndicator } from './components/RecordingIndicator'
 import type {
   PetMetadata,
@@ -74,7 +75,7 @@ function PetWindow() {
   const [activeModeId, setActiveModeId] = useState<ShortcutModeId>('assistant')
 
   // --- Todo reminder ---
-  const [todoReminder, setTodoReminder] = useState<Todo | null>(null)
+  const [todoReminder, setTodoReminder] = useState<ReminderItem | null>(null)
 
   // --- Pet recording ---
   const [recPhase, setRecPhase] = useState<'idle' | 'recording' | 'transcribing' | 'summarizing' | 'done' | 'error'>('idle')
@@ -151,8 +152,12 @@ function PetWindow() {
     })
 
     // Todo reminder
-    const cleanupReminder = api.onTodoReminder?.((todo: Todo) => {
-      setTodoReminder(todo)
+    const cleanupReminder = api.onTodoReminder?.((data: any) => {
+      if (data.type === 'strategy') {
+        setTodoReminder({ type: 'strategy', id: data.id, title: data.title, note: data.note, priority: data.priority, stock_code: data.stock_code })
+      } else {
+        setTodoReminder({ type: 'todo', todo: data as Todo })
+      }
     })
 
     // Active app
@@ -222,18 +227,32 @@ function PetWindow() {
 
   // --- Todo reminder ---
   const handleDismissReminder = useCallback((id: string) => {
-    window.electronAPI?.dismissTodoReminder?.(id)
+    if (todoReminder?.type === 'todo') {
+      window.electronAPI?.dismissTodoReminder?.(id)
+    }
     setTodoReminder(null)
-  }, [])
+  }, [todoReminder])
 
-  const handleOpenTodo = useCallback(() => {
-    window.electronAPI?.openTodoWindow?.()
+  const handleOpenReminder = useCallback((item: ReminderItem) => {
+    if (item.type === 'todo') {
+      window.electronAPI?.openTodoWindow?.()
+    } else if (item.type === 'strategy') {
+      window.electronAPI?.openStockWindow?.()
+    }
   }, [])
 
   const handleSnoozeReminder = useCallback((id: string, minutes: number) => {
     window.electronAPI?.snoozeTodoReminder?.(id, minutes)
     setTodoReminder(null)
   }, [])
+
+  useEffect(() => {
+    if (todoReminder) {
+      window.electronAPI?.setIgnoreMouse?.(false)
+    } else if (!hovered && !commandsOpen && !chatOpen && !showSelector && recPhase === 'idle') {
+      window.electronAPI?.setIgnoreMouse?.(true)
+    }
+  }, [todoReminder])
 
   // --- Pet recording handlers ---
   const startPetRecording = useCallback(async () => {
@@ -303,10 +322,9 @@ function PetWindow() {
   const handleModeChange = useCallback((modeId: ShortcutModeId) => {
     setActiveModeId(modeId)
     if (modeConfig) {
-      const updated = { ...modeConfig, activeModeId: modeId }
-      setModeConfig(updated)
-      window.electronAPI?.saveModeShortcutConfig?.(updated)
+      setModeConfig({ ...modeConfig, activeModeId: modeId })
     }
+    window.electronAPI?.setActiveModeId?.(modeId)
   }, [modeConfig])
 
   const executeModeShortcut = useCallback((shortcut: ModeShortcut) => {
@@ -331,6 +349,9 @@ function PetWindow() {
         break
       case 'openStockWindow':
         window.electronAPI?.openStockWindow?.()
+        break
+      case 'openStickyNoteWindow':
+        window.electronAPI?.openStickyNoteWindow?.()
         break
       case 'openSettingsWindow':
         window.electronAPI?.openSettingsWindow?.()
@@ -515,7 +536,7 @@ function PetWindow() {
     window.electronAPI?.pauseWalk?.()
   }
   const handleMouseLeave = () => {
-    if (!showSelector && !commandsOpen && !chatOpen && recPhase === 'idle') {
+    if (!showSelector && !commandsOpen && !chatOpen && recPhase === 'idle' && !todoReminder) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
       hideTimerRef.current = setTimeout(() => {
         setHovered(false)
@@ -603,9 +624,9 @@ function PetWindow() {
 
       {/* Todo reminder */}
       <TodoReminder
-        todo={todoReminder}
+        item={todoReminder}
         onDismiss={handleDismissReminder}
-        onOpen={handleOpenTodo}
+        onOpen={handleOpenReminder}
         onSnooze={handleSnoozeReminder}
       />
 
@@ -637,6 +658,7 @@ export default function App() {
   if (route === '#/stock') return <StockWindow />
   if (route === '#/chat') return <ChatWindow />
   if (route === '#/recording') return <RecordingWindow />
+  if (route === '#/sticky') return <StickyNoteWindow />
 
   return <PetWindow />
 }
