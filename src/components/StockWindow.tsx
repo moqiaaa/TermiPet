@@ -72,10 +72,33 @@ export function StockWindow() {
   const [indicatorScope, setIndicatorScope] = useState<string>('')
   const [selectedIndicatorDef, setSelectedIndicatorDef] = useState<StockIndicatorDef | null>(null)
   const [showIndicatorDefForm, setShowIndicatorDefForm] = useState(false)
-  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, type: 'basic' as string, description: '' })
+  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, type: 'basic' as string, description: '', refresh_interval: 0, fetch_key: '' })
   const [indicatorCondForm, setIndicatorCondForm] = useState({ indicator_name: '', operator: '>', threshold: '' })
   const [indicatorRefStrategies, setIndicatorRefStrategies] = useState<{ strategy_name: string; operator: string; threshold: string; direction: number }[]>([])
   const [indicatorStockValues, setIndicatorStockValues] = useState<{ stock_code: string; stock_name: string; value: string | null }[]>([])
+  const [marketValues, setMarketValues] = useState<Record<string, string>>({})
+  const [editingMarketIndicator, setEditingMarketIndicator] = useState<string | null>(null)
+  const [editingMarketValue, setEditingMarketValue] = useState('')
+
+  const loadMarketValues = useCallback(async () => {
+    const inds = await window.electronAPI?.getIndicators('__market__') || []
+    const map: Record<string, string> = {}
+    for (const ind of inds) { map[ind.name] = ind.value || '' }
+    setMarketValues(map)
+  }, [])
+
+  const handleSaveMarketValue = async (indicatorName: string) => {
+    const existing = (await window.electronAPI?.getIndicators('__market__') || []).find((i: StockIndicator) => i.name === indicatorName)
+    await window.electronAPI?.saveIndicator({
+      id: existing?.id,
+      stock_code: '__market__',
+      name: indicatorName,
+      value: editingMarketValue,
+      remark: null,
+    })
+    setEditingMarketIndicator(null)
+    loadMarketValues()
+  }
 
   const loadTrades = useCallback(async () => {
     const list = await window.electronAPI?.getTrades({
@@ -107,8 +130,8 @@ export function StockWindow() {
     if (tab === 'trades') { loadTrades(); loadStrategies() }
     else if (tab === 'positions') { loadPositions(); loadStrategies() }
     else if (tab === 'strategies') { loadStrategies(); loadIndicatorDefs() }
-    else if (tab === 'indicators') loadIndicatorDefs()
-  }, [tab, loadTrades, loadPositions, loadStrategies, loadIndicatorDefs])
+    else if (tab === 'indicators') { loadIndicatorDefs(); loadMarketValues() }
+  }, [tab, loadTrades, loadPositions, loadStrategies, loadIndicatorDefs, loadMarketValues])
 
   useEffect(() => {
     if (tab === 'indicators') loadIndicatorDefs()
@@ -277,6 +300,8 @@ export function StockWindow() {
       value_type: indicatorDefForm.value_type,
       type: indicatorDefForm.type,
       description: indicatorDefForm.description || null,
+      refresh_interval: indicatorDefForm.refresh_interval,
+      fetch_key: indicatorDefForm.fetch_key || null,
     })
     setShowIndicatorDefForm(false)
     loadIndicatorDefs()
@@ -811,7 +836,7 @@ export function StockWindow() {
         <div className="stock-strategies-panel">
           <div className="stock-filter-row">
             <button className="add-btn" onClick={() => {
-              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', type: 'basic', description: '' })
+              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', type: 'basic', description: '', refresh_interval: 0, fetch_key: '' })
               setShowIndicatorDefForm(true)
               setSelectedIndicatorDef(null)
             }}>+ 新建指标</button>
@@ -840,6 +865,22 @@ export function StockWindow() {
                 </div>
               </div>
               <textarea value={indicatorDefForm.description} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, description: e.target.value })} placeholder="指标说明" rows={2} />
+              <div className="trade-form-grid">
+                <select value={indicatorDefForm.refresh_interval} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, refresh_interval: Number(e.target.value) })}>
+                  <option value={0}>手动刷新</option>
+                  <option value={60}>1 分钟</option>
+                  <option value={300}>5 分钟</option>
+                  <option value={600}>10 分钟</option>
+                  <option value={1800}>30 分钟</option>
+                  <option value={3600}>1 小时</option>
+                </select>
+                {indicatorDefForm.refresh_interval > 0 && (
+                  <select value={indicatorDefForm.fetch_key} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, fetch_key: e.target.value })}>
+                    <option value="">选择数据源...</option>
+                    <option value="market_turnover">大盘成交额（沪深合计）</option>
+                  </select>
+                )}
+              </div>
               <div className="trade-form-actions">
                 <button onClick={handleSaveIndicatorDef}>保存</button>
                 <button onClick={() => setShowIndicatorDefForm(false)}>取消</button>
@@ -863,6 +904,30 @@ export function StockWindow() {
                     <span>{d.type === 'composite' ? '组合' : (d.value_type === 'number' ? '数值' : '文本')}</span>
                     {d.type === 'composite' && d.conditions && <span>{d.conditions.length} 个子条件</span>}
                   </div>
+                  {d.scope === 'market' && d.type === 'basic' && (
+                    <div className="market-value-row">
+                      {editingMarketIndicator === d.name ? (
+                        <div className="market-value-edit">
+                          <input
+                            value={editingMarketValue}
+                            onChange={e => setEditingMarketValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveMarketValue(d.name); if (e.key === 'Escape') setEditingMarketIndicator(null) }}
+                            autoFocus
+                            onClick={e => e.stopPropagation()}
+                            placeholder="输入值..."
+                          />
+                          <button className="table-btn" onClick={e => { e.stopPropagation(); handleSaveMarketValue(d.name) }}>✓</button>
+                        </div>
+                      ) : (
+                        <span
+                          className="market-value-display"
+                          onClick={e => { e.stopPropagation(); setEditingMarketIndicator(d.name); setEditingMarketValue(marketValues[d.name] || '') }}
+                        >
+                          {marketValues[d.name] ? <b>{marketValues[d.name]}</b> : <em>点击录入</em>}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {indicatorDefs.length === 0 && <div className="empty-row">暂无指标</div>}
@@ -880,6 +945,8 @@ export function StockWindow() {
                         value_type: selectedIndicatorDef.value_type,
                         type: selectedIndicatorDef.type || 'basic',
                         description: selectedIndicatorDef.description || '',
+                        refresh_interval: selectedIndicatorDef.refresh_interval || 0,
+                        fetch_key: selectedIndicatorDef.fetch_key || '',
                       })
                       setShowIndicatorDefForm(true)
                     }}>编辑</button>
@@ -892,7 +959,13 @@ export function StockWindow() {
                     ? <span className="type-tag composite">组合指标</span>
                     : <span className="type-tag">{selectedIndicatorDef.value_type === 'number' ? '数值型' : '文本型'}</span>
                   }
+                  {selectedIndicatorDef.refresh_interval > 0 && (
+                    <span className="type-tag">{selectedIndicatorDef.refresh_interval >= 3600 ? `${selectedIndicatorDef.refresh_interval / 3600}h` : selectedIndicatorDef.refresh_interval >= 60 ? `${selectedIndicatorDef.refresh_interval / 60}min` : `${selectedIndicatorDef.refresh_interval}s`} 自动</span>
+                  )}
                 </div>
+                {selectedIndicatorDef.last_fetched_at && (
+                  <p className="position-notes" style={{ fontSize: 11, opacity: 0.6 }}>上次刷新: {new Date(selectedIndicatorDef.last_fetched_at).toLocaleString()}</p>
+                )}
                 {selectedIndicatorDef.description && <p className="position-notes">{selectedIndicatorDef.description}</p>}
 
                 {selectedIndicatorDef.type === 'composite' && (

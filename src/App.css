@@ -5591,3 +5591,48 @@ td.sell { color: #22c55e; }
   background: rgba(251, 191, 36, 0.12);
   color: #fbbf24;
 }
+
+/* Market indicator value in list */
+.market-value-row {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.market-value-display {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.market-value-display:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.market-value-display b {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.market-value-display em {
+  color: rgba(255,255,255,0.25);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.market-value-edit {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.market-value-edit input {
+  width: 100px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(124,58,237,0.5);
+  background: rgba(255,255,255,0.05);
+  color: inherit;
+  font-size: 12px;
+  outline: none;
+}
