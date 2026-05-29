@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { StockTrade, StockPosition, StockIndicator, StockStrategy, StockStrategyBinding } from '../types/pet'
+import type { StockTrade, StockPosition, StockIndicator, StockStrategy, StockStrategyCondition, StockStrategyBinding, StockIndicatorDef } from '../types/pet'
 
-type Tab = 'trades' | 'positions' | 'strategies'
+type Tab = 'trades' | 'positions' | 'strategies' | 'indicators'
 
 interface OcrResult {
   stock_name?: string
@@ -67,6 +67,13 @@ export function StockWindow() {
   const [tradeStrategies, setTradeStrategies] = useState<StockStrategy[]>([])
   const [selectedTradeStrategy, setSelectedTradeStrategy] = useState<number | undefined>()
 
+  // Indicator def state
+  const [indicatorDefs, setIndicatorDefs] = useState<StockIndicatorDef[]>([])
+  const [indicatorScope, setIndicatorScope] = useState<string>('')
+  const [selectedIndicatorDef, setSelectedIndicatorDef] = useState<StockIndicatorDef | null>(null)
+  const [showIndicatorDefForm, setShowIndicatorDefForm] = useState(false)
+  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, description: '' })
+
   const loadTrades = useCallback(async () => {
     const list = await window.electronAPI?.getTrades({
       keyword: keyword || undefined,
@@ -88,11 +95,21 @@ export function StockWindow() {
     setStrategies(list || [])
   }, [])
 
+  const loadIndicatorDefs = useCallback(async () => {
+    const list = await window.electronAPI?.getIndicatorDefs(indicatorScope || undefined)
+    setIndicatorDefs(list || [])
+  }, [indicatorScope])
+
   useEffect(() => {
     if (tab === 'trades') { loadTrades(); loadStrategies() }
-    else if (tab === 'positions') loadPositions()
-    else if (tab === 'strategies') loadStrategies()
-  }, [tab, loadTrades, loadPositions, loadStrategies])
+    else if (tab === 'positions') { loadPositions(); loadStrategies() }
+    else if (tab === 'strategies') { loadStrategies(); loadIndicatorDefs() }
+    else if (tab === 'indicators') loadIndicatorDefs()
+  }, [tab, loadTrades, loadPositions, loadStrategies, loadIndicatorDefs])
+
+  useEffect(() => {
+    if (tab === 'indicators') loadIndicatorDefs()
+  }, [indicatorScope])
 
   useEffect(() => {
     if (showTradeForm) {
@@ -218,6 +235,30 @@ export function StockWindow() {
       setPositionBindings([])
     }
     loadPositions()
+  }
+
+  const handleSelectIndicatorDef = async (def: StockIndicatorDef) => {
+    setSelectedIndicatorDef(def)
+  }
+
+  const handleSaveIndicatorDef = async () => {
+    if (!indicatorDefForm.name) return
+    const saved = await window.electronAPI?.saveIndicatorDef({
+      id: selectedIndicatorDef?.id,
+      name: indicatorDefForm.name,
+      scope: indicatorDefForm.scope,
+      value_type: indicatorDefForm.value_type,
+      description: indicatorDefForm.description || null,
+    })
+    setShowIndicatorDefForm(false)
+    loadIndicatorDefs()
+    if (saved) setSelectedIndicatorDef(saved)
+  }
+
+  const handleDeleteIndicatorDef = async (id: number) => {
+    await window.electronAPI?.deleteIndicatorDef(id)
+    if (selectedIndicatorDef?.id === id) setSelectedIndicatorDef(null)
+    loadIndicatorDefs()
   }
 
   const handleSelectStrategy = async (s: StockStrategy) => {
@@ -376,6 +417,7 @@ export function StockWindow() {
         <button className={tab === 'trades' ? 'active' : ''} onClick={() => setTab('trades')}>交易记录</button>
         <button className={tab === 'positions' ? 'active' : ''} onClick={() => setTab('positions')}>持仓</button>
         <button className={tab === 'strategies' ? 'active' : ''} onClick={() => setTab('strategies')}>策略</button>
+        <button className={tab === 'indicators' ? 'active' : ''} onClick={() => setTab('indicators')}>指标</button>
       </div>
 
       {tab === 'trades' && (
@@ -469,6 +511,11 @@ export function StockWindow() {
                   <td>
                     <button className="table-btn" onClick={() => handleEditTrade(t)}>编辑</button>
                     <button className="table-btn danger" onClick={() => handleDeleteTrade(t.id)}>删除</button>
+                    <button
+                      className="table-btn notes-btn"
+                      onClick={() => handleOpenNotesModal(t.stock_code, t.stock_name)}
+                      title={`${t.stock_name}笔记`}
+                    >笔记</button>
                   </td>
                 </tr>
               ))}
@@ -530,9 +577,23 @@ export function StockWindow() {
                   <span>数量: {selectedPosition.quantity}</span>
                   <span>成本: {Number(selectedPosition.cost_price).toFixed(2)}</span>
                 </div>
-                {selectedPosition.notes && <p className="position-notes">{selectedPosition.notes}</p>}
                 {selectedPosition.buy_point && <p>买点: {selectedPosition.buy_point}</p>}
                 {selectedPosition.sell_point && <p>卖点: {selectedPosition.sell_point}</p>}
+
+                <div className="position-notes-section">
+                  <div className="position-notes-header">
+                    <h4>股票笔记</h4>
+                    {notesSaved && <span className="notes-saved-tag">已保存</span>}
+                  </div>
+                  <textarea
+                    className="position-notes-textarea"
+                    value={positionNotes}
+                    onChange={e => { setPositionNotes(e.target.value); setNotesSaved(false) }}
+                    onBlur={handleSavePositionNotes}
+                    placeholder="记录对该股票的分析、策略、关注点..."
+                    rows={4}
+                  />
+                </div>
 
                 {indicators.length > 0 && (
                   <div className="indicators">
@@ -662,7 +723,12 @@ export function StockWindow() {
                     </div>
                   ))}
                   <div className="condition-add-row">
-                    <input value={conditionForm.indicator_name} onChange={e => setConditionForm({ ...conditionForm, indicator_name: e.target.value })} placeholder="指标名" />
+                    <select value={conditionForm.indicator_name} onChange={e => setConditionForm({ ...conditionForm, indicator_name: e.target.value })} className="condition-indicator-select">
+                      <option value="">选择指标...</option>
+                      {indicatorDefs.map(d => (
+                        <option key={d.id} value={d.name}>{d.name}（{d.scope === 'market' ? '大盘' : '个股'}）</option>
+                      ))}
+                    </select>
                     <select value={conditionForm.operator} onChange={e => setConditionForm({ ...conditionForm, operator: e.target.value })}>
                       <option value=">">{'>'}</option>
                       <option value="<">{'<'}</option>
@@ -687,6 +753,117 @@ export function StockWindow() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'indicators' && (
+        <div className="stock-strategies-panel">
+          <div className="stock-filter-row">
+            <button className="add-btn" onClick={() => {
+              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', description: '' })
+              setShowIndicatorDefForm(true)
+              setSelectedIndicatorDef(null)
+            }}>+ 新建指标</button>
+            <div className="direction-toggle indicator-scope-filter">
+              <button className={indicatorScope === '' ? 'active' : ''} onClick={() => setIndicatorScope('')}>全部</button>
+              <button className={indicatorScope === 'stock' ? 'active' : ''} onClick={() => setIndicatorScope('stock')}>个股</button>
+              <button className={indicatorScope === 'market' ? 'active' : ''} onClick={() => setIndicatorScope('market')}>大盘</button>
+            </div>
+          </div>
+
+          {showIndicatorDefForm && (
+            <div className="trade-form">
+              <div className="trade-form-grid">
+                <input value={indicatorDefForm.name} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, name: e.target.value })} placeholder="指标名称" />
+                <div className="direction-toggle">
+                  <button className={indicatorDefForm.scope === 'stock' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, scope: 'stock' })}>个股</button>
+                  <button className={indicatorDefForm.scope === 'market' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, scope: 'market' })}>大盘</button>
+                </div>
+                <div className="direction-toggle">
+                  <button className={indicatorDefForm.value_type === 'number' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, value_type: 'number' })}>数值</button>
+                  <button className={indicatorDefForm.value_type === 'text' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, value_type: 'text' })}>文本</button>
+                </div>
+              </div>
+              <textarea value={indicatorDefForm.description} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, description: e.target.value })} placeholder="指标说明" rows={2} />
+              <div className="trade-form-actions">
+                <button onClick={handleSaveIndicatorDef}>保存</button>
+                <button onClick={() => setShowIndicatorDefForm(false)}>取消</button>
+              </div>
+            </div>
+          )}
+
+          <div className="positions-layout">
+            <div className="strategy-list">
+              {indicatorDefs.map(d => (
+                <div
+                  key={d.id}
+                  className={`strategy-item ${selectedIndicatorDef?.id === d.id ? 'selected' : ''}`}
+                  onClick={() => handleSelectIndicatorDef(d)}
+                >
+                  <div className="strategy-item-header">
+                    <span className="strategy-name">{d.name}</span>
+                    <span className={`scope-tag ${d.scope}`}>{d.scope === 'market' ? '大盘' : '个股'}</span>
+                  </div>
+                  <div className="strategy-item-meta">
+                    <span>{d.value_type === 'number' ? '数值' : '文本'}</span>
+                  </div>
+                </div>
+              ))}
+              {indicatorDefs.length === 0 && <div className="empty-row">暂无指标</div>}
+            </div>
+
+            {selectedIndicatorDef && (
+              <div className="position-detail strategy-detail">
+                <div className="strategy-detail-header">
+                  <h3>{selectedIndicatorDef.name}</h3>
+                  <div>
+                    <button className="table-btn" onClick={() => {
+                      setIndicatorDefForm({
+                        name: selectedIndicatorDef.name,
+                        scope: selectedIndicatorDef.scope,
+                        value_type: selectedIndicatorDef.value_type,
+                        description: selectedIndicatorDef.description || '',
+                      })
+                      setShowIndicatorDefForm(true)
+                    }}>编辑</button>
+                    <button className="table-btn danger" onClick={() => handleDeleteIndicatorDef(selectedIndicatorDef.id)}>删除</button>
+                  </div>
+                </div>
+                <div className="indicator-def-tags">
+                  <span className={`scope-tag ${selectedIndicatorDef.scope}`}>{selectedIndicatorDef.scope === 'market' ? '大盘指标' : '个股指标'}</span>
+                  <span className="type-tag">{selectedIndicatorDef.value_type === 'number' ? '数值型' : '文本型'}</span>
+                </div>
+                {selectedIndicatorDef.description && <p className="position-notes">{selectedIndicatorDef.description}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showNotesModal && notesModalStock && (
+        <div className="ocr-modal-overlay" onClick={() => setShowNotesModal(false)}>
+          <div className="ocr-modal stock-notes-modal" onClick={e => e.stopPropagation()}>
+            <div className="ocr-modal-header">
+              <span>{notesModalStock.name} ({notesModalStock.code}) 笔记</span>
+              <button className="ocr-close-btn" onClick={() => setShowNotesModal(false)}>×</button>
+            </div>
+            <div className="ocr-modal-body">
+              <textarea
+                className="position-notes-textarea"
+                value={modalNotes}
+                onChange={e => { setModalNotes(e.target.value); setModalNotesSaved(false) }}
+                onBlur={handleSaveModalNotes}
+                placeholder="记录对该股票的分析、策略、关注点..."
+                rows={6}
+                autoFocus
+              />
+              <div className="notes-modal-footer">
+                <span className="notes-hint">失焦自动保存</span>
+                {modalNotesSaved && <span className="notes-saved-tag">已保存</span>}
+                <button className="add-btn" onClick={handleSaveModalNotes}>保存</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
