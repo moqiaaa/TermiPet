@@ -261,6 +261,16 @@ export interface StockStrategyBinding {
   created_at: string
 }
 
+export interface StockIndicatorDef {
+  id: number
+  name: string
+  scope: 'stock' | 'market'
+  value_type: 'number' | 'text'
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface DroppedFile {
   type: 'image' | 'document'
   name: string
