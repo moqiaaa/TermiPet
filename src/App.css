@@ -4174,8 +4174,11 @@ td.sell { color: #22c55e; }
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 4px 0;
+  padding: 6px 10px;
   font-size: 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  margin-bottom: 2px;
 }
 
 .indicator-name {
@@ -5358,8 +5361,8 @@ td.sell { color: #22c55e; }
 }
 
 .strategy-item.selected {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.15);
+  background: rgba(124, 58, 237, 0.08);
+  border-color: rgba(124, 58, 237, 0.6);
 }
 
 .strategy-item-header {
@@ -5398,6 +5401,12 @@ td.sell { color: #22c55e; }
   color: #219953;
 }
 
+.position-detail.strategy-detail {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
 .strategy-detail-header {
   display: flex;
   align-items: center;
@@ -5406,6 +5415,17 @@ td.sell { color: #22c55e; }
 
 .strategy-detail-header h3 {
   margin: 0;
+  font-size: 16px;
+}
+
+.strategy-detail-header .table-btn {
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+.strategy-detail-header .table-btn.danger {
+  border-color: rgba(239, 68, 68, 0.3);
 }
 
 .condition-add-row {
