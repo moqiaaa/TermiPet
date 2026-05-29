@@ -73,6 +73,8 @@ export function StockWindow() {
   const [selectedIndicatorDef, setSelectedIndicatorDef] = useState<StockIndicatorDef | null>(null)
   const [showIndicatorDefForm, setShowIndicatorDefForm] = useState(false)
   const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, description: '' })
+  const [indicatorRefStrategies, setIndicatorRefStrategies] = useState<{ strategy_name: string; operator: string; threshold: string; direction: number }[]>([])
+  const [indicatorStockValues, setIndicatorStockValues] = useState<{ stock_code: string; stock_name: string; value: string | null }[]>([])
 
   const loadTrades = useCallback(async () => {
     const list = await window.electronAPI?.getTrades({
@@ -239,6 +241,30 @@ export function StockWindow() {
 
   const handleSelectIndicatorDef = async (def: StockIndicatorDef) => {
     setSelectedIndicatorDef(def)
+    // Load strategies that reference this indicator
+    const allStrategies = await window.electronAPI?.getStrategies() || []
+    const refs: { strategy_name: string; operator: string; threshold: string; direction: number }[] = []
+    for (const s of allStrategies) {
+      for (const c of (s.conditions || [])) {
+        if (c.indicator_name === def.name) {
+          refs.push({ strategy_name: s.name, operator: c.operator, threshold: c.threshold, direction: s.direction })
+        }
+      }
+    }
+    setIndicatorRefStrategies(refs)
+    // Load stock values for this indicator (only for stock-scope)
+    if (def.scope === 'stock') {
+      const positions = await window.electronAPI?.getPositions() || []
+      const vals: { stock_code: string; stock_name: string; value: string | null }[] = []
+      for (const p of positions) {
+        const inds = await window.electronAPI?.getIndicators(p.stock_code) || []
+        const match = inds.find((i: StockIndicator) => i.name === def.name)
+        if (match) vals.push({ stock_code: p.stock_code, stock_name: p.stock_name, value: match.value })
+      }
+      setIndicatorStockValues(vals)
+    } else {
+      setIndicatorStockValues([])
+    }
   }
 
   const handleSaveIndicatorDef = async () => {
@@ -835,6 +861,31 @@ export function StockWindow() {
                   <span className="type-tag">{selectedIndicatorDef.value_type === 'number' ? '数值型' : '文本型'}</span>
                 </div>
                 {selectedIndicatorDef.description && <p className="position-notes">{selectedIndicatorDef.description}</p>}
+
+                {indicatorRefStrategies.length > 0 && (
+                  <div className="indicators">
+                    <h4>引用此指标的策略</h4>
+                    {indicatorRefStrategies.map((r, i) => (
+                      <div key={i} className="indicator-item">
+                        <span className="indicator-name">{r.strategy_name}</span>
+                        <span className="indicator-value">{r.operator} {r.threshold}</span>
+                        <span className={`direction-tag ${r.direction === 1 ? 'buy' : 'sell'}`}>{r.direction === 1 ? '买入' : '卖出'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {indicatorStockValues.length > 0 && (
+                  <div className="indicators">
+                    <h4>各股票当前值</h4>
+                    {indicatorStockValues.map((v, i) => (
+                      <div key={i} className="indicator-item">
+                        <span className="indicator-name">{v.stock_name}({v.stock_code})</span>
+                        <span className="indicator-value">{v.value ?? '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
