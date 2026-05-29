@@ -162,6 +162,18 @@ async function ensureSchema() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_indicator_def (
+      id BIGINT PRIMARY KEY,
+      name VARCHAR(50) NOT NULL,
+      scope VARCHAR(10) NOT NULL DEFAULT 'stock',
+      value_type VARCHAR(10) NOT NULL DEFAULT 'number',
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `)
 }
 
 module.exports = { ensureSchema }

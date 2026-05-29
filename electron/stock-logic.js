@@ -177,6 +177,21 @@ async function deletePosition(id) {
   return result.affectedRows > 0
 }
 
+async function saveStockNotes(stockCode, notes) {
+  if (!stockCode) return null
+  const rows = await db.query('SELECT * FROM stock_position WHERE stock_code = ?', [stockCode])
+  if (!rows[0]) return null
+  await db.query('UPDATE stock_position SET notes = ?, updated_at = NOW() WHERE stock_code = ?', [notes || null, stockCode])
+  const updated = await db.query('SELECT * FROM stock_position WHERE stock_code = ?', [stockCode])
+  return updated[0] || null
+}
+
+async function getPositionByStockCode(stockCode) {
+  if (!stockCode) return null
+  const rows = await db.query('SELECT * FROM stock_position WHERE stock_code = ?', [stockCode])
+  return rows[0] || null
+}
+
 // ========== stock_indicator ==========
 
 async function getIndicators(stockCode) {
@@ -357,12 +372,54 @@ async function checkStrategyConditions(stockCode) {
   return triggered
 }
 
+// ========== stock_indicator_def ==========
+
+async function getIndicatorDefs(scope) {
+  let sql = 'SELECT * FROM stock_indicator_def'
+  const params = []
+  if (scope) {
+    sql += ' WHERE scope = ?'
+    params.push(scope)
+  }
+  sql += ' ORDER BY created_at DESC'
+  return db.query(sql, params)
+}
+
+async function getIndicatorDefById(id) {
+  const rows = await db.query('SELECT * FROM stock_indicator_def WHERE id = ?', [id])
+  return rows[0] || null
+}
+
+async function saveIndicatorDef({ id, name, scope, value_type, description }) {
+  if (!name) return null
+  if (id) {
+    await db.query(
+      'UPDATE stock_indicator_def SET name=?, scope=?, value_type=?, description=?, updated_at=NOW() WHERE id=?',
+      [name, scope || 'stock', value_type || 'number', description || null, id]
+    )
+    return getIndicatorDefById(id)
+  }
+  const newId = Date.now()
+  await db.query(
+    'INSERT INTO stock_indicator_def (id, name, scope, value_type, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+    [newId, name, scope || 'stock', value_type || 'number', description || null]
+  )
+  return getIndicatorDefById(newId)
+}
+
+async function deleteIndicatorDef(id) {
+  if (!id) return false
+  const result = await db.query('DELETE FROM stock_indicator_def WHERE id = ?', [id])
+  return result.affectedRows > 0
+}
+
 module.exports = {
   getTrades, getTradeById, getTradeCount, saveTrade, deleteTrade,
-  getPositions, getPositionById, savePosition, deletePosition,
+  getPositions, getPositionById, savePosition, deletePosition, saveStockNotes, getPositionByStockCode,
   getIndicators, saveIndicator, deleteIndicator,
   getStrategies, getStrategyById, saveStrategy, deleteStrategy,
   saveCondition, deleteCondition,
   getBindingsByStrategy, getBindingsByStock, saveBinding, toggleBinding, deleteBinding,
-  checkStrategyConditions
+  checkStrategyConditions,
+  getIndicatorDefs, getIndicatorDefById, saveIndicatorDef, deleteIndicatorDef
 }

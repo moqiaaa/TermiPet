@@ -117,6 +117,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPositionById: (id) => ipcRenderer.invoke('get-position-by-id', id),
   savePosition: (pos) => ipcRenderer.invoke('save-position', pos),
   deletePosition: (id) => ipcRenderer.invoke('delete-position', id),
+  saveStockNotes: (stockCode, notes) => ipcRenderer.invoke('save-stock-notes', stockCode, notes),
+  getPositionByStockCode: (stockCode) => ipcRenderer.invoke('get-position-by-stock-code', stockCode),
   getIndicators: (stockCode) => ipcRenderer.invoke('get-indicators', stockCode),
   saveIndicator: (ind) => ipcRenderer.invoke('save-indicator', ind),
   deleteIndicator: (id) => ipcRenderer.invoke('delete-indicator', id),
@@ -132,6 +134,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveBinding: (data) => ipcRenderer.invoke('save-binding', data),
   toggleBinding: (id, enabled) => ipcRenderer.invoke('toggle-binding', id, enabled),
   deleteBinding: (id) => ipcRenderer.invoke('delete-binding', id),
+  // Stock indicator definitions
+  getIndicatorDefs: (scope) => ipcRenderer.invoke('get-indicator-defs', scope),
+  getIndicatorDefById: (id) => ipcRenderer.invoke('get-indicator-def-by-id', id),
+  saveIndicatorDef: (data) => ipcRenderer.invoke('save-indicator-def', data),
+  deleteIndicatorDef: (id) => ipcRenderer.invoke('delete-indicator-def', id),
   ocrTrade: (imageBase64) => ipcRenderer.invoke('ocr-trade', imageBase64),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
 

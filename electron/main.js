@@ -1426,6 +1426,8 @@ function setupIPC() {
   ipcMain.handle('get-position-by-id', (_event, id) => getStockLogic().getPositionById(id))
   ipcMain.handle('save-position', (_event, pos) => getStockLogic().savePosition(pos))
   ipcMain.handle('delete-position', (_event, id) => getStockLogic().deletePosition(id))
+  ipcMain.handle('save-stock-notes', (_event, stockCode, notes) => getStockLogic().saveStockNotes(stockCode, notes))
+  ipcMain.handle('get-position-by-stock-code', (_event, stockCode) => getStockLogic().getPositionByStockCode(stockCode))
   ipcMain.handle('get-indicators', (_event, stockCode) => getStockLogic().getIndicators(stockCode))
   ipcMain.handle('save-indicator', async (_event, ind) => {
     const result = await getStockLogic().saveIndicator(ind)
@@ -1458,6 +1460,12 @@ function setupIPC() {
   ipcMain.handle('save-binding', (_event, data) => getStockLogic().saveBinding(data))
   ipcMain.handle('toggle-binding', (_event, id, enabled) => getStockLogic().toggleBinding(id, enabled))
   ipcMain.handle('delete-binding', (_event, id) => getStockLogic().deleteBinding(id))
+
+  // Stock indicator definitions
+  ipcMain.handle('get-indicator-defs', (_event, scope) => getStockLogic().getIndicatorDefs(scope))
+  ipcMain.handle('get-indicator-def-by-id', (_event, id) => getStockLogic().getIndicatorDefById(id))
+  ipcMain.handle('save-indicator-def', (_event, data) => getStockLogic().saveIndicatorDef(data))
+  ipcMain.handle('delete-indicator-def', (_event, id) => getStockLogic().deleteIndicatorDef(id))
 
   // -- Stock OCR --
   ipcMain.handle('ocr-trade', async (_event, imageBase64) => {
