@@ -1427,8 +1427,37 @@ function setupIPC() {
   ipcMain.handle('save-position', (_event, pos) => getStockLogic().savePosition(pos))
   ipcMain.handle('delete-position', (_event, id) => getStockLogic().deletePosition(id))
   ipcMain.handle('get-indicators', (_event, stockCode) => getStockLogic().getIndicators(stockCode))
-  ipcMain.handle('save-indicator', (_event, ind) => getStockLogic().saveIndicator(ind))
+  ipcMain.handle('save-indicator', async (_event, ind) => {
+    const result = await getStockLogic().saveIndicator(ind)
+    if (result.triggered && result.triggered.length > 0) {
+      const stockName = ind.stock_name || ind.stock_code
+      for (const t of result.triggered) {
+        mainWindow.webContents.send('todo-reminder', {
+          id: `strategy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: 'strategy',
+          title: `${t.strategy_name}`,
+          note: `${stockName}(${ind.stock_code}) — ${t.direction === 1 ? '买入' : '卖出'}信号\n${t.conditions.map(c => `${c.indicator_name} ${c.operator} ${c.threshold} (当前: ${c.current_value})`).join('\n')}`,
+          priority: 'high',
+          stock_code: ind.stock_code,
+        })
+      }
+    }
+    return result.indicator
+  })
   ipcMain.handle('delete-indicator', (_event, id) => getStockLogic().deleteIndicator(id))
+
+  // Stock strategy
+  ipcMain.handle('get-strategies', () => getStockLogic().getStrategies())
+  ipcMain.handle('get-strategy-by-id', (_event, id) => getStockLogic().getStrategyById(id))
+  ipcMain.handle('save-strategy', (_event, data) => getStockLogic().saveStrategy(data))
+  ipcMain.handle('delete-strategy', (_event, id) => getStockLogic().deleteStrategy(id))
+  ipcMain.handle('save-condition', (_event, data) => getStockLogic().saveCondition(data))
+  ipcMain.handle('delete-condition', (_event, id) => getStockLogic().deleteCondition(id))
+  ipcMain.handle('get-bindings-by-strategy', (_event, strategyId) => getStockLogic().getBindingsByStrategy(strategyId))
+  ipcMain.handle('get-bindings-by-stock', (_event, stockCode) => getStockLogic().getBindingsByStock(stockCode))
+  ipcMain.handle('save-binding', (_event, data) => getStockLogic().saveBinding(data))
+  ipcMain.handle('toggle-binding', (_event, id, enabled) => getStockLogic().toggleBinding(id, enabled))
+  ipcMain.handle('delete-binding', (_event, id) => getStockLogic().deleteBinding(id))
 
   // -- Stock OCR --
   ipcMain.handle('ocr-trade', async (_event, imageBase64) => {

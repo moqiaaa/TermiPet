@@ -120,6 +120,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getIndicators: (stockCode) => ipcRenderer.invoke('get-indicators', stockCode),
   saveIndicator: (ind) => ipcRenderer.invoke('save-indicator', ind),
   deleteIndicator: (id) => ipcRenderer.invoke('delete-indicator', id),
+  // Stock strategy
+  getStrategies: () => ipcRenderer.invoke('get-strategies'),
+  getStrategyById: (id) => ipcRenderer.invoke('get-strategy-by-id', id),
+  saveStrategy: (data) => ipcRenderer.invoke('save-strategy', data),
+  deleteStrategy: (id) => ipcRenderer.invoke('delete-strategy', id),
+  saveCondition: (data) => ipcRenderer.invoke('save-condition', data),
+  deleteCondition: (id) => ipcRenderer.invoke('delete-condition', id),
+  getBindingsByStrategy: (strategyId) => ipcRenderer.invoke('get-bindings-by-strategy', strategyId),
+  getBindingsByStock: (stockCode) => ipcRenderer.invoke('get-bindings-by-stock', stockCode),
+  saveBinding: (data) => ipcRenderer.invoke('save-binding', data),
+  toggleBinding: (id, enabled) => ipcRenderer.invoke('toggle-binding', id, enabled),
+  deleteBinding: (id) => ipcRenderer.invoke('delete-binding', id),
   ocrTrade: (imageBase64) => ipcRenderer.invoke('ocr-trade', imageBase64),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
 
