@@ -72,7 +72,7 @@ export function StockWindow() {
   const [indicatorScope, setIndicatorScope] = useState<string>('')
   const [selectedIndicatorDef, setSelectedIndicatorDef] = useState<StockIndicatorDef | null>(null)
   const [showIndicatorDefForm, setShowIndicatorDefForm] = useState(false)
-  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, type: 'basic' as string, description: '', refresh_interval: 0, fetch_key: '' })
+  const [indicatorDefForm, setIndicatorDefForm] = useState({ name: '', scope: 'stock' as string, value_type: 'number' as string, type: 'basic' as string, description: '', refresh_interval: 0, fetch_key: '', unit: '' })
   const [indicatorCondForm, setIndicatorCondForm] = useState({ indicator_name: '', operator: '>', threshold: '' })
   const [indicatorRefStrategies, setIndicatorRefStrategies] = useState<{ strategy_name: string; operator: string; threshold: string; direction: number }[]>([])
   const [indicatorStockValues, setIndicatorStockValues] = useState<{ stock_code: string; stock_name: string; value: string | null }[]>([])
@@ -302,6 +302,7 @@ export function StockWindow() {
       description: indicatorDefForm.description || null,
       refresh_interval: indicatorDefForm.refresh_interval,
       fetch_key: indicatorDefForm.fetch_key || null,
+      unit: indicatorDefForm.unit || '',
     })
     setShowIndicatorDefForm(false)
     loadIndicatorDefs()
@@ -836,7 +837,7 @@ export function StockWindow() {
         <div className="stock-strategies-panel">
           <div className="stock-filter-row">
             <button className="add-btn" onClick={() => {
-              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', type: 'basic', description: '', refresh_interval: 0, fetch_key: '' })
+              setIndicatorDefForm({ name: '', scope: 'stock', value_type: 'number', type: 'basic', description: '', refresh_interval: 0, fetch_key: '', unit: '' })
               setShowIndicatorDefForm(true)
               setSelectedIndicatorDef(null)
             }}>+ 新建指标</button>
@@ -864,7 +865,10 @@ export function StockWindow() {
                   <button className={indicatorDefForm.value_type === 'text' ? 'active' : ''} onClick={() => setIndicatorDefForm({ ...indicatorDefForm, value_type: 'text' })}>文本</button>
                 </div>
               </div>
-              <textarea value={indicatorDefForm.description} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, description: e.target.value })} placeholder="指标说明" rows={2} />
+              <div className="trade-form-grid">
+                <textarea value={indicatorDefForm.description} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, description: e.target.value })} placeholder="指标说明" rows={2} style={{ gridColumn: '1 / -1' }} />
+                <input value={indicatorDefForm.unit} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, unit: e.target.value })} placeholder="单位（如：亿、%）" />
+              </div>
               <div className="trade-form-grid">
                 <select value={indicatorDefForm.refresh_interval} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, refresh_interval: Number(e.target.value) })}>
                   <option value={0}>手动刷新</option>
@@ -878,6 +882,7 @@ export function StockWindow() {
                   <select value={indicatorDefForm.fetch_key} onChange={e => setIndicatorDefForm({ ...indicatorDefForm, fetch_key: e.target.value })}>
                     <option value="">选择数据源...</option>
                     <option value="market_turnover">大盘成交额（沪深合计）</option>
+                    <option value="sh_advance_decline">涨跌家数（沪深A股）</option>
                   </select>
                 )}
               </div>
@@ -899,6 +904,19 @@ export function StockWindow() {
                   <div className="strategy-item-header">
                     <span className="strategy-name">{d.name}</span>
                     <span className={`scope-tag ${d.scope}`}>{d.scope === 'market' ? '大盘' : '个股'}</span>
+                    {d.fetch_key && (
+                      <button className="table-btn" style={{ padding: '0 4px', fontSize: 11, marginLeft: 'auto' }} onClick={async e => {
+                        e.stopPropagation()
+                        try {
+                          await (window as any).electronAPI?.refreshIndicator(d.id)
+                          loadMarketValues()
+                          loadIndicatorDefs()
+                        } catch (err) {
+                          console.error('refreshIndicator failed:', err)
+                          alert('刷新失败：' + (err instanceof Error ? err.message : '未知错误'))
+                        }
+                      }}>⟳</button>
+                    )}
                   </div>
                   <div className="strategy-item-meta">
                     <span>{d.type === 'composite' ? '组合' : (d.value_type === 'number' ? '数值' : '文本')}</span>
@@ -923,7 +941,18 @@ export function StockWindow() {
                           className="market-value-display"
                           onClick={e => { e.stopPropagation(); setEditingMarketIndicator(d.name); setEditingMarketValue(marketValues[d.name] || '') }}
                         >
-                          {marketValues[d.name] ? <b>{marketValues[d.name]}</b> : <em>点击录入</em>}
+                          {marketValues[d.name] ? (() => {
+                            const v = marketValues[d.name]
+                            const m = v.match(/^(\d+)\/(\d+)\/(\d+)$/)
+                            if (m) return <b>
+                              <span style={{ color: '#e53935' }}>↑{m[1]}</span>
+                              {' '}
+                              <span style={{ color: '#43a047' }}>↓{m[2]}</span>
+                              {' '}
+                              <span style={{ color: '#999' }}>—{m[3]}</span>
+                            </b>
+                            return <b>{v}{d.unit && ` ${d.unit}`}</b>
+                          })() : <em>点击录入</em>}
                         </span>
                       )}
                     </div>
@@ -947,9 +976,23 @@ export function StockWindow() {
                         description: selectedIndicatorDef.description || '',
                         refresh_interval: selectedIndicatorDef.refresh_interval || 0,
                         fetch_key: selectedIndicatorDef.fetch_key || '',
+                        unit: selectedIndicatorDef.unit || '',
                       })
                       setShowIndicatorDefForm(true)
                     }}>编辑</button>
+                    {selectedIndicatorDef.fetch_key && (
+                      <button className="table-btn" onClick={async () => {
+                        try {
+                          await (window as any).electronAPI?.refreshIndicator(selectedIndicatorDef.id)
+                          loadMarketValues()
+                          const updated = await window.electronAPI?.getIndicatorDefById(selectedIndicatorDef.id)
+                          if (updated) setSelectedIndicatorDef(updated)
+                        } catch (err) {
+                          console.error('refreshIndicator failed:', err)
+                          alert('刷新失败：' + (err instanceof Error ? err.message : '未知错误'))
+                        }
+                      }}>刷新</button>
+                    )}
                     <button className="table-btn danger" onClick={() => handleDeleteIndicatorDef(selectedIndicatorDef.id)}>删除</button>
                   </div>
                 </div>

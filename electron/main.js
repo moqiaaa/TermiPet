@@ -1466,6 +1466,10 @@ function setupIPC() {
   ipcMain.handle('get-indicator-def-by-id', (_event, id) => getStockLogic().getIndicatorDefById(id))
   ipcMain.handle('save-indicator-def', (_event, data) => getStockLogic().saveIndicatorDef(data))
   ipcMain.handle('delete-indicator-def', (_event, id) => getStockLogic().deleteIndicatorDef(id))
+  ipcMain.handle('refresh-indicator', async (_event, defId) => {
+    const { fetchOne } = require('./stock-scheduler')
+    return fetchOne(defId)
+  })
   ipcMain.handle('save-indicator-condition', (_event, data) => getStockLogic().saveIndicatorCondition(data))
   ipcMain.handle('delete-indicator-condition', (_event, id) => getStockLogic().deleteIndicatorCondition(id))
   ipcMain.handle('evaluate-composite-indicator', (_event, defId, stockCode) => getStockLogic().evaluateCompositeIndicator(defId, stockCode))
@@ -1599,7 +1603,9 @@ function setupIPC() {
 
   ipcMain.handle('snooze-todo-reminder', async (_event, id, minutes) => {
     const delayMinutes = Number.isFinite(Number(minutes)) ? Math.max(1, Number(minutes)) : 10
-    const reminderAt = new Date(Date.now() + delayMinutes * 60_000).toISOString()
+    const d = new Date(Date.now() + delayMinutes * 60_000)
+    const p = n => String(n).padStart(2, '0')
+    const reminderAt = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
     const { query } = require('./db')
     await query('UPDATE todo SET reminder_at = ?, notified = 0 WHERE id = ?', [reminderAt, id])
     return true
@@ -1631,6 +1637,119 @@ function setupIPC() {
   checkTodoReminders()
 
   // -- Speech to text (DashScope FunASR / SenseVoice) --
+  async function dashscopeTranscribe(speechKey, audioBuffer, filename, contentType) {
+    const policyRes = await httpRequest(
+      'https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=sensevoice-v1',
+      { method: 'GET', headers: { 'Authorization': `Bearer ${speechKey}` } }
+    )
+    if (policyRes.status >= 400) {
+      return { error: `获取上传凭证失败: HTTP ${policyRes.status}` }
+    }
+    const policyData = JSON.parse(policyRes.body)
+    const { data } = policyData
+    if (!data || !data.upload_host || !data.policy) {
+      return { error: '获取上传凭证失败' }
+    }
+
+    const ossKey = `${data.upload_dir}/${filename}`
+    const boundary = '----OSSBound' + Date.now().toString(36)
+    const fields = {
+      OSSAccessKeyId: data.oss_access_key_id,
+      Signature: data.signature,
+      policy: data.policy,
+      'x-oss-object-acl': data.x_oss_object_acl,
+      'x-oss-forbid-overwrite': data.x_oss_forbid_overwrite,
+      key: ossKey,
+      success_action_status: '200',
+    }
+    const ossParts = []
+    for (const [k, v] of Object.entries(fields)) {
+      ossParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
+    }
+    ossParts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`
+    ))
+    ossParts.push(audioBuffer)
+    ossParts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
+
+    const ossRes = await httpRequest(data.upload_host, {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body: Buffer.concat(ossParts),
+    })
+    if (ossRes.status >= 300) {
+      return { error: `OSS 上传失败: HTTP ${ossRes.status}` }
+    }
+
+    const ossUrl = `oss://${ossKey}`
+    const taskBody = JSON.stringify({
+      model: 'sensevoice-v1',
+      input: { file_urls: [ossUrl] },
+      parameters: { language_hints: ['zh'] },
+    })
+    const taskRes = await httpRequest('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${speechKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+        'X-DashScope-OssResourceResolve': 'enable',
+      },
+      body: taskBody,
+    })
+    if (taskRes.status >= 400) {
+      return { error: `提交识别任务失败: HTTP ${taskRes.status}` }
+    }
+
+    const taskData = JSON.parse(taskRes.body)
+    const taskId = taskData.output?.task_id
+    if (!taskId) {
+      return { error: '提交识别任务失败: 未返回 task_id' }
+    }
+
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      const pollRes = await httpRequest(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${speechKey}` },
+      })
+      const pollData = JSON.parse(pollRes.body)
+      const status = pollData.output?.task_status
+
+      if (status === 'SUCCEEDED') {
+        const results = pollData.output?.results
+        if (!results || results.length === 0) {
+          return { error: '识别完成但无结果' }
+        }
+        let text = ''
+        if (results[0].transcription_url) {
+          const transRes = await httpRequest(results[0].transcription_url, { method: 'GET' })
+          const transData = JSON.parse(transRes.body)
+          if (transData.transcripts) {
+            for (const t of transData.transcripts) {
+              if (t.sentences) text += t.sentences.map(s => s.text).join('')
+              else if (t.text) text += t.text
+            }
+          }
+          if (!text && transData.text) text = transData.text
+        } else if (results[0].text) {
+          text = results[0].text
+        }
+        text = text.replace(/<\|[^|]*\|>/g, '').trim()
+        return { text }
+      }
+
+      if (status === 'FAILED') {
+        if (pollData.output?.code === 'InvalidFile.EmptyOutput') {
+          return { error: '没有检测到语音内容，请靠近麦克风说话后重试' }
+        }
+        return { error: `语音识别失败: ${pollData.output?.message || pollData.output?.code || '未知错误'}` }
+      }
+    }
+
+    return { error: '语音识别超时（60秒）' }
+  }
+
   ipcMain.handle('transcribe-audio', async (_event, audioBase64) => {
     const { getConfig } = require('./config-db')
     const alicloud = await getConfig('alicloud')
@@ -1638,137 +1757,10 @@ function setupIPC() {
     if (!speechKey) {
       return { error: '未配置语音识别 API Key，请在设置中配置' }
     }
-
     try {
       const audioBuffer = Buffer.from(audioBase64, 'base64')
       const filename = `recording-${Date.now()}.webm`
-
-      // Step 1: Get OSS upload policy from DashScope
-      const policyRes = await httpRequest(
-        `https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=sensevoice-v1`,
-        { method: 'GET', headers: { 'Authorization': `Bearer ${speechKey}` } }
-      )
-      if (policyRes.status >= 400) {
-        return { error: `获取上传凭证失败: HTTP ${policyRes.status}: ${policyRes.body}` }
-      }
-      const policyData = JSON.parse(policyRes.body)
-      const { data } = policyData
-      if (!data || !data.upload_host || !data.policy) {
-        return { error: `获取上传凭证失败: ${policyRes.body}` }
-      }
-
-      // Step 2: Upload audio file to OSS
-      const ossKey = `${data.upload_dir}/${filename}`
-      const boundary = '----OSSBound' + Date.now().toString(36)
-      const fields = {
-        OSSAccessKeyId: data.oss_access_key_id,
-        Signature: data.signature,
-        policy: data.policy,
-        'x-oss-object-acl': data.x_oss_object_acl,
-        'x-oss-forbid-overwrite': data.x_oss_forbid_overwrite,
-        key: ossKey,
-        success_action_status: '200',
-      }
-      const ossParts = []
-      for (const [k, v] of Object.entries(fields)) {
-        ossParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
-      }
-      ossParts.push(Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: audio/webm\r\n\r\n`
-      ))
-      ossParts.push(audioBuffer)
-      ossParts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
-      const ossBody = Buffer.concat(ossParts)
-
-      const ossRes = await httpRequest(data.upload_host, {
-        method: 'POST',
-        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-        body: ossBody,
-      })
-      if (ossRes.status >= 300) {
-        return { error: `OSS 上传失败: HTTP ${ossRes.status}: ${ossRes.body}` }
-      }
-
-      const ossUrl = `oss://${ossKey}`
-
-      // Step 3: Submit transcription task
-      const taskBody = JSON.stringify({
-        model: 'sensevoice-v1',
-        input: { file_urls: [ossUrl] },
-        parameters: { language_hints: ['zh'] },
-      })
-
-      const taskRes = await httpRequest('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${speechKey}`,
-          'Content-Type': 'application/json',
-          'X-DashScope-Async': 'enable',
-          'X-DashScope-OssResourceResolve': 'enable',
-        },
-        body: taskBody,
-      })
-
-      if (taskRes.status >= 400) {
-        return { error: `提交识别任务失败: HTTP ${taskRes.status}: ${taskRes.body}` }
-      }
-
-      const taskData = JSON.parse(taskRes.body)
-      const taskId = taskData.output?.task_id
-      if (!taskId) {
-        return { error: `提交识别任务失败: 未返回 task_id: ${taskRes.body}` }
-      }
-
-      // Step 4: Poll for results (max 60s)
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 1000))
-
-        const pollRes = await httpRequest(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${speechKey}` },
-        })
-
-        const pollData = JSON.parse(pollRes.body)
-        const status = pollData.output?.task_status
-
-        if (status === 'SUCCEEDED') {
-          const results = pollData.output?.results
-          if (!results || results.length === 0) {
-            return { error: '识别完成但无结果' }
-          }
-
-          const transUrl = results[0].transcription_url
-          if (!transUrl) {
-            return { text: (results[0].text || '').replace(/<\|[^|]*\|>/g, '').trim() }
-          }
-
-          const transRes = await httpRequest(transUrl, { method: 'GET' })
-          const transData = JSON.parse(transRes.body)
-
-          let text = ''
-          if (transData.transcripts) {
-            for (const t of transData.transcripts) {
-              if (t.sentences) {
-                text += t.sentences.map(s => s.text).join('')
-              } else if (t.text) {
-                text += t.text
-              }
-            }
-          }
-          if (!text && transData.text) {
-            text = transData.text
-          }
-
-          text = text.replace(/<\|[^|]*\|>/g, '').trim()
-          return { text }
-        }
-
-        if (status === 'FAILED') {
-          return { error: `语音识别失败: ${pollData.output?.message || pollData.output?.code || '未知错误'}` }
-        }
-      }
-
-      return { error: '语音识别超时（60秒）' }
+      return await dashscopeTranscribe(speechKey, audioBuffer, filename, 'audio/webm')
     } catch (err) {
       return { error: `语音识别失败: ${err.message}` }
     }
@@ -1919,120 +1911,15 @@ function setupIPC() {
       try { fs.unlinkSync(webmPath); fs.unlinkSync(wavPath) } catch (_) {}
       const filename = `recording-${ts}.wav`
 
-      const policyRes = await httpRequest(
-        `https://dashscope.aliyuncs.com/api/v1/uploads?action=getPolicy&model=sensevoice-v1`,
-        { method: 'GET', headers: { 'Authorization': `Bearer ${speechKey}` } }
-      )
-      if (policyRes.status >= 400) {
+      const transcribeResult = await dashscopeTranscribe(speechKey, audioBuffer, filename, 'audio/wav')
+      if (transcribeResult.error) {
         sendProgress('error')
-        return { error: `获取上传凭证失败: HTTP ${policyRes.status}` }
+        return transcribeResult
       }
-      const policyData = JSON.parse(policyRes.body)
-      const { data } = policyData
-      if (!data || !data.upload_host || !data.policy) {
-        sendProgress('error')
-        return { error: `获取上传凭证失败` }
-      }
-
-      const ossKey = `${data.upload_dir}/${filename}`
-      const boundary = '----OSSBound' + Date.now().toString(36)
-      const fields = {
-        OSSAccessKeyId: data.oss_access_key_id,
-        Signature: data.signature,
-        policy: data.policy,
-        'x-oss-object-acl': data.x_oss_object_acl,
-        'x-oss-forbid-overwrite': data.x_oss_forbid_overwrite,
-        key: ossKey,
-        success_action_status: '200',
-      }
-      const ossParts = []
-      for (const [k, v] of Object.entries(fields)) {
-        ossParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`))
-      }
-      ossParts.push(Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: audio/wav\r\n\r\n`
-      ))
-      ossParts.push(audioBuffer)
-      ossParts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
-
-      const ossRes = await httpRequest(data.upload_host, {
-        method: 'POST',
-        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-        body: Buffer.concat(ossParts),
-      })
-      if (ossRes.status >= 300) {
-        sendProgress('error')
-        return { error: `OSS 上传失败: HTTP ${ossRes.status}` }
-      }
-
-      const ossUrl = `oss://${ossKey}`
-      const taskBody = JSON.stringify({
-        model: 'sensevoice-v1',
-        input: { file_urls: [ossUrl] },
-        parameters: { language_hints: ['zh'] },
-      })
-      const taskRes = await httpRequest('https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${speechKey}`,
-          'Content-Type': 'application/json',
-          'X-DashScope-Async': 'enable',
-          'X-DashScope-OssResourceResolve': 'enable',
-        },
-        body: taskBody,
-      })
-      if (taskRes.status >= 400) {
-        sendProgress('error')
-        return { error: `提交识别任务失败: HTTP ${taskRes.status}` }
-      }
-
-      const taskData = JSON.parse(taskRes.body)
-      const taskId = taskData.output?.task_id
-      if (!taskId) {
-        sendProgress('error')
-        return { error: `提交识别任务失败: 未返回 task_id` }
-      }
-
-      let rawText = ''
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 1000))
-        const pollRes = await httpRequest(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${speechKey}` },
-        })
-        const pollData = JSON.parse(pollRes.body)
-        const st = pollData.output?.task_status
-        if (st === 'SUCCEEDED') {
-          const results = pollData.output?.results
-          if (results?.[0]?.transcription_url) {
-            const transRes = await httpRequest(results[0].transcription_url, { method: 'GET' })
-            const transData = JSON.parse(transRes.body)
-            if (transData.transcripts) {
-              for (const t of transData.transcripts) {
-                if (t.sentences) rawText += t.sentences.map(s => s.text).join('')
-                else if (t.text) rawText += t.text
-              }
-            }
-            if (!rawText && transData.text) rawText = transData.text
-          } else if (results?.[0]?.text) {
-            rawText = results[0].text
-          }
-          break
-        }
-        if (st === 'FAILED') {
-          const code = pollData.output?.code
-          if (code === 'InvalidFile.EmptyOutput') {
-            sendProgress('error')
-            return { error: '没有检测到语音内容，请靠近麦克风说话后重试' }
-          }
-          sendProgress('error')
-          return { error: `语音识别失败: ${pollData.output?.message || '未知错误'}` }
-        }
-      }
-
+      const rawText = transcribeResult.text
       if (!rawText) {
         sendProgress('error')
-        return { error: '语音识别超时或无结果' }
+        return { error: '语音识别完成但无文本结果' }
       }
 
       sendProgress('summarizing')
@@ -2263,6 +2150,9 @@ app.whenReady().then(async () => {
   createMainWindow()
   createTray()
   startProcessMonitor()
+
+  const stockScheduler = require('./stock-scheduler')
+  stockScheduler.start()
 })
 
 app.on('window-all-closed', () => {
@@ -2271,6 +2161,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async () => {
   stopProcessMonitor()
+  const stockScheduler = require('./stock-scheduler')
+  stockScheduler.stop()
   try {
     const { closePool } = require('./db')
     await closePool()

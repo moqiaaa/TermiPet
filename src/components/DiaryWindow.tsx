@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Diary, DiaryCategory } from '../types/pet'
 
+function toDateStr(v: unknown): string {
+  if (v instanceof Date) return v.toLocaleDateString('zh-CN')
+  return typeof v === 'string' ? v : ''
+}
+
+function toInputDate(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10)
+  return typeof v === 'string' ? v : ''
+}
+
 export function DiaryWindow() {
   const [categories, setCategories] = useState<DiaryCategory[]>([])
   const [diaries, setDiaries] = useState<Diary[]>([])
@@ -51,7 +61,7 @@ export function DiaryWindow() {
     setForm({
       title: selectedDiary.title,
       content: selectedDiary.content,
-      diary_date: selectedDiary.diary_date || '',
+      diary_date: toInputDate(selectedDiary.diary_date),
       tags: selectedDiary.tags || '',
       category_id: selectedDiary.category_id ?? undefined,
     })
@@ -125,7 +135,7 @@ export function DiaryWindow() {
             >
               <div className="diary-list-title">{d.title}</div>
               <div className="diary-list-meta">
-                {d.diary_date || d.created_at?.slice(0, 10)}
+                {toDateStr(d.diary_date) || toDateStr(d.created_at) || String(d.created_at ?? '').slice(0, 10)}
                 {d.category_name && ` · ${d.category_name}`}
               </div>
             </li>
@@ -180,7 +190,7 @@ export function DiaryWindow() {
           <div className="diary-detail">
             <h2>{selectedDiary.title}</h2>
             <div className="diary-detail-meta">
-              {selectedDiary.diary_date}
+              {toDateStr(selectedDiary.diary_date)}
               {selectedDiary.category_name && ` · ${selectedDiary.category_name}`}
               {selectedDiary.tags && ` · ${selectedDiary.tags}`}
             </div>

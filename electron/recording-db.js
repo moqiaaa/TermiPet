@@ -16,7 +16,7 @@ function rowToFrontend(row) {
 async function getRecordings(limit = 50, offset = 0) {
   const rows = await query(
     'SELECT * FROM recording ORDER BY created_at DESC LIMIT ? OFFSET ?',
-    [limit, offset]
+    [Number(limit) || 50, Number(offset) || 0]
   )
   return rows.map(rowToFrontend)
 }

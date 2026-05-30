@@ -423,6 +423,9 @@ input:focus, textarea:focus, select:focus {
   gap: 3px;
   align-items: center;
   margin-left: 2px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
 }
 
 .shortcut-btn {

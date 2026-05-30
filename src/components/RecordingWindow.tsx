@@ -46,19 +46,18 @@ export function RecordingWindow() {
 
   useEffect(() => {
     const init = async () => {
-      const results = await window.electronAPI?.getRecordingResults?.()
-      if (results) {
-        applyResults(results.rawText, results.summary, results.todoSummary, results.sceneName, results.audioPath, results.duration)
-        setPhase('done')
-        return
-      }
-
-      await loadHistory()
-
       const data = await window.electronAPI?.getScenes?.()
       if (data) {
         setScenes(data.scenes)
         setSelectedSceneId(data.defaultSceneId)
+      }
+
+      const results = await window.electronAPI?.getRecordingResults?.()
+      if (results) {
+        applyResults(results.rawText, results.summary, results.todoSummary, results.sceneName, results.audioPath, results.duration)
+        setPhase('done')
+      } else {
+        await loadHistory()
       }
     }
     init()
@@ -129,7 +128,20 @@ export function RecordingWindow() {
     await loadHistory()
   }, [loadHistory])
 
+  const [sceneDropdownOpen, setSceneDropdownOpen] = useState(false)
+  const sceneDropdownRef = useRef<HTMLDivElement>(null)
   const selectedScene = scenes.find((s) => s.id === selectedSceneId)
+
+  useEffect(() => {
+    if (!sceneDropdownOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sceneDropdownRef.current && !sceneDropdownRef.current.contains(e.target as Node)) {
+        setSceneDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [sceneDropdownOpen])
 
   const processRecording = useCallback(async (base64: string) => {
     setPhase('transcribing')
@@ -154,6 +166,8 @@ export function RecordingWindow() {
     setTranscript(entries)
     setKeywords(extractKeywords(rawText))
 
+    let sumText = ''
+    let todoText = ''
     const scene = scenesRef.current.find((s) => s.id === selectedSceneIdRef.current)
     if (scene) {
       setPhase('summarizing')
@@ -163,8 +177,25 @@ export function RecordingWindow() {
         window.electronAPI?.summarizeTranscript(rawText, scene.summaryPrompt),
         window.electronAPI?.summarizeTranscript(rawText, scene.todoPrompt),
       ])
-      if (summaryResult?.text) setSummary(summaryResult.text)
-      if (todoResult?.text) setTodoSummary(todoResult.text)
+      sumText = summaryResult?.text || ''
+      todoText = todoResult?.text || ''
+      if (sumText) setSummary(sumText)
+      if (todoText) setTodoSummary(todoText)
+    }
+
+    try {
+      const saved = await window.electronAPI?.saveRecording({
+        sceneName: scene?.name || '',
+        rawText,
+        summary: sumText,
+        todoSummary: todoText,
+        audioBase64: base64,
+        duration: recordingTimeRef.current,
+      })
+      if (saved?.audioPath) setCurrentAudioPath(saved.audioPath)
+    } catch (e) {
+      console.error('saveRecording failed:', e)
+      setError('保存录音失败，请重试')
     }
 
     setPhase('done')
@@ -318,15 +349,27 @@ export function RecordingWindow() {
         </div>
 
         <div className="rec-center">
-          <div className="rec-scene-selector" onClick={() => {
-            const idx = scenes.findIndex((s) => s.id === selectedSceneId)
-            const next = scenes[(idx + 1) % scenes.length]
-            if (next) setSelectedSceneId(next.id)
-          }}>
+          <div ref={sceneDropdownRef} className="rec-scene-selector" onClick={() => setSceneDropdownOpen(!sceneDropdownOpen)}>
             <span className="rec-scene-icon">🎙</span>
             <span className="rec-scene-name">{selectedScene?.name || '选择场景'}</span>
-            <span className="rec-scene-divider" />
-            <span className="rec-scene-switch">切换 ▾</span>
+            <span className="rec-scene-arrow">{sceneDropdownOpen ? '▴' : '▾'}</span>
+            {sceneDropdownOpen && (
+              <div className="rec-scene-dropdown">
+                {scenes.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`rec-scene-option${s.id === selectedSceneId ? ' active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedSceneId(s.id)
+                      setSceneDropdownOpen(false)
+                    }}
+                  >
+                    {s.name}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {phase === 'idle' ? (

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { Todo, Project, TodoSubtask } from '../types/pet'
 
 type ViewMode = 'list' | 'board' | 'calendar'
-type SmartView = 'all' | 'today' | 'upcoming' | 'inbox' | 'repeat'
+type SmartView = 'all' | 'today' | 'upcoming' | 'inbox'
 
 const DEFAULT_PROJECT: Project = {
   id: 'inbox',
@@ -23,7 +23,6 @@ const PROJECT_COLORS = ['#635bff', '#22c55e', '#f97316', '#0ea5e9', '#ec4899', '
 const BOARD_COLUMNS: Array<{ id: NonNullable<Todo['status']>; title: string }> = [
   { id: 'backlog', title: '待安排' },
   { id: 'in_progress', title: '进行中' },
-  { id: 'waiting', title: '等待' },
   { id: 'done', title: '已完成' },
 ]
 
@@ -31,18 +30,17 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
 
-function nowLocalInputValue() {
-  const date = new Date()
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  return date.toISOString().slice(0, 16)
+function pad2(n: number) { return n.toString().padStart(2, '0') }
+
+function toStorageDateTime(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
 }
 
 function toLocalInputValue(value?: string) {
   if (!value) return ''
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
-  return date.toISOString().slice(0, 16)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }
 
 function formatDateTime(value?: string) {
@@ -85,7 +83,6 @@ function createBlankTodo(projectId: string): Todo {
     createdAt: Date.now(),
     priority: 'medium',
     status: 'backlog',
-    repeatRule: 'none',
     estimatedMinutes: 30,
     subtasks: [],
   }
@@ -97,7 +94,7 @@ function createPreviewTodos(): Todo[] {
     const date = new Date(now)
     date.setDate(now.getDate() + dayOffset)
     date.setHours(hour, minute, 0, 0)
-    return date.toISOString()
+    return toStorageDateTime(date)
   }
 
   return [
@@ -112,7 +109,7 @@ function createPreviewTodos(): Todo[] {
       note: '需要对齐最新功能工作台方向，整理给开发使用的交互稿。',
       priority: 'high',
       status: 'in_progress',
-      repeatRule: 'none',
+
       estimatedMinutes: 45,
       subtasks: [
         { id: 'sub-scope', title: '确认修改范围', done: true },
@@ -130,7 +127,7 @@ function createPreviewTodos(): Todo[] {
       note: '路过药店时提醒。',
       priority: 'medium',
       status: 'backlog',
-      repeatRule: 'none',
+
       estimatedMinutes: 20,
       subtasks: [],
     },
@@ -143,7 +140,7 @@ function createPreviewTodos(): Todo[] {
       note: '重点看 Todoist、TickTick、Microsoft To Do 的任务组织方式。',
       priority: 'medium',
       status: 'backlog',
-      repeatRule: 'none',
+
       estimatedMinutes: 40,
       subtasks: [],
     },
@@ -155,8 +152,8 @@ function createPreviewTodos(): Todo[] {
       createdAt: Date.now() - 70000,
       dueDate: at(16, 0, 2),
       priority: 'medium',
-      status: 'waiting',
-      repeatRule: 'weekly',
+      status: 'backlog',
+
       estimatedMinutes: 30,
       subtasks: [],
     },
@@ -169,7 +166,7 @@ function createPreviewTodos(): Todo[] {
       completedAt: Date.now() - 60000,
       priority: 'low',
       status: 'done',
-      repeatRule: 'none',
+
       estimatedMinutes: 15,
       subtasks: [],
     },
@@ -180,7 +177,6 @@ function normalizeTodo(todo: Todo): Todo {
   const base = {
     priority: 'medium' as const,
     status: (todo.done ? 'done' : 'backlog') as Todo['status'],
-    repeatRule: 'none' as const,
     estimatedMinutes: 30,
     subtasks: [] as Todo['subtasks'],
     ...todo,
@@ -196,23 +192,6 @@ function priorityLabel(priority?: Todo['priority']) {
   return '中'
 }
 
-function repeatLabel(rule?: Todo['repeatRule']) {
-  if (rule === 'daily') return '每天'
-  if (rule === 'weekly') return '每周'
-  if (rule === 'monthly') return '每月'
-  return '不重复'
-}
-
-// --- Repeat task: compute next due date ---
-function computeNextDueDate(dueDate: string | undefined, rule: Todo['repeatRule']): string | undefined {
-  if (!dueDate || !rule || rule === 'none') return undefined
-  const date = new Date(dueDate)
-  if (Number.isNaN(date.getTime())) return undefined
-  if (rule === 'daily') date.setDate(date.getDate() + 1)
-  else if (rule === 'weekly') date.setDate(date.getDate() + 7)
-  else if (rule === 'monthly') date.setMonth(date.getMonth() + 1)
-  return date.toISOString()
-}
 
 // --- Natural language parsing ---
 function parseNaturalLanguage(input: string): Partial<Todo> & { cleanTitle: string } {
@@ -230,11 +209,6 @@ function parseNaturalLanguage(input: string): Partial<Todo> & { cleanTitle: stri
   if (/!高/.test(text)) priority = 'high'
   else if (/!低/.test(text)) priority = 'low'
   text = text.replace(/![高中低]/g, '')
-
-  let repeatRule: Todo['repeatRule'] = 'none'
-  if (/每天|每日/.test(text)) { repeatRule = 'daily'; text = text.replace(/每天|每日/g, '') }
-  else if (/每周/.test(text)) { repeatRule = 'weekly'; text = text.replace(/每周[一二三四五六日]?/g, '') }
-  else if (/每月/.test(text)) { repeatRule = 'monthly'; text = text.replace(/每月/g, '') }
 
   let dueDate: string | undefined
   let reminderAt: string | undefined
@@ -266,19 +240,19 @@ function parseNaturalLanguage(input: string): Partial<Todo> & { cleanTitle: stri
   if (/今天|今晚|今早/.test(text)) {
     const d = new Date(now)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(/今天|今晚|今早/g, '')
   } else if (/明天|明早|明晚/.test(text)) {
     const d = new Date(now)
     d.setDate(d.getDate() + 1)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(/明天|明早|明晚/g, '')
   } else if (/后天/.test(text)) {
     const d = new Date(now)
     d.setDate(d.getDate() + 2)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(/后天/g, '')
   } else if (/下?周([一二三四五六日天])/.test(text)) {
     const dayMap: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }
@@ -291,27 +265,27 @@ function parseNaturalLanguage(input: string): Partial<Todo> & { cleanTitle: stri
     if (isNext && diff <= 7) diff += 7
     d.setDate(d.getDate() + diff)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(/下?周[一二三四五六日天]/g, '')
   } else if (/(\d{1,2})[月/](\d{1,2})[日号]?/.test(text)) {
     const absMatch = text.match(/(\d{1,2})[月/](\d{1,2})[日号]?/)!
     const d = new Date(now.getFullYear(), parseInt(absMatch[1], 10) - 1, parseInt(absMatch[2], 10))
     if (d.getTime() < now.getTime()) d.setFullYear(d.getFullYear() + 1)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(absMatch[0], '')
   } else if (/(\d{1,2})[日号]/.test(text)) {
     const dayMatch = text.match(/(\d{1,2})[日号]/)!
     const d = new Date(now.getFullYear(), now.getMonth(), parseInt(dayMatch[1], 10))
     if (d.getTime() < now.getTime()) d.setMonth(d.getMonth() + 1)
     if (hour !== null) { d.setHours(hour, minute, 0, 0) } else { d.setHours(23, 59, 0, 0) }
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
     text = text.replace(dayMatch[0], '')
   } else if (hour !== null) {
     const d = new Date(now)
     d.setHours(hour, minute, 0, 0)
     if (d.getTime() < now.getTime()) d.setDate(d.getDate() + 1)
-    dueDate = d.toISOString()
+    dueDate = toStorageDateTime(d)
   }
 
   if (/提醒/.test(text)) {
@@ -321,7 +295,7 @@ function parseNaturalLanguage(input: string): Partial<Todo> & { cleanTitle: stri
 
   const cleanTitle = text.replace(/\s+/g, ' ').trim()
 
-  return { cleanTitle, priority, repeatRule, dueDate, reminderAt, projectId: projectTag, tags: tags.length ? tags : undefined }
+  return { cleanTitle, priority, dueDate, reminderAt, projectId: projectTag, tags: tags.length ? tags : undefined }
 }
 
 // --- AI task decomposition templates ---
@@ -418,6 +392,134 @@ function getRecommendedTodos(todos: Todo[]): Array<{ todo: Todo; reason: string 
     .map(({ todo, reason }) => ({ todo, reason }))
 }
 
+function DateTimePicker({ label, value, onChange }: { label: string; value?: string; onChange: (v: string | undefined) => void }) {
+  const [open, setOpen] = useState(false)
+  const parsed = value ? new Date(value) : null
+  const validParsed = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null
+
+  const [viewYear, setViewYear] = useState(validParsed?.getFullYear() ?? new Date().getFullYear())
+  const [viewMonth, setViewMonth] = useState(validParsed?.getMonth() ?? new Date().getMonth())
+  const [selDay, setSelDay] = useState(validParsed?.getDate() ?? 0)
+  const [selHour, setSelHour] = useState(validParsed?.getHours() ?? 9)
+  const [selMinute, setSelMinute] = useState(validParsed?.getMinutes() ?? 0)
+
+  useEffect(() => {
+    if (!open) return
+    const p = value ? new Date(value) : null
+    const v = p && !Number.isNaN(p.getTime()) ? p : null
+    if (v) {
+      setViewYear(v.getFullYear()); setViewMonth(v.getMonth())
+      setSelDay(v.getDate()); setSelHour(v.getHours()); setSelMinute(v.getMinutes())
+    } else {
+      const now = new Date()
+      setViewYear(now.getFullYear()); setViewMonth(now.getMonth())
+      setSelDay(0); setSelHour(9); setSelMinute(0)
+    }
+  }, [open, value])
+
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate()
+  const today = new Date()
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11) } else setViewMonth(m => m - 1) }
+  const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0) } else setViewMonth(m => m + 1) }
+
+  const handleConfirm = () => {
+    if (selDay === 0) { setOpen(false); return }
+    const d = new Date(viewYear, viewMonth, selDay, selHour, selMinute, 0)
+    onChange(toStorageDateTime(d))
+    setOpen(false)
+  }
+
+  const handleClear = () => { onChange(undefined); setOpen(false) }
+
+  const handleShortcutDate = (offset: number) => {
+    const d = new Date()
+    if (offset === 7) {
+      const day = d.getDay()
+      d.setDate(d.getDate() + (day === 0 ? 1 : 8 - day))
+    } else {
+      d.setDate(d.getDate() + offset)
+    }
+    setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); setSelDay(d.getDate())
+  }
+
+  const cells: Array<{ day: number; inMonth: boolean; isToday: boolean }> = []
+  for (let i = firstDayOfMonth - 1; i >= 0; i--) cells.push({ day: daysInPrevMonth - i, inMonth: false, isToday: false })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({
+    day: d, inMonth: true,
+    isToday: d === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear(),
+  })
+  const remaining = 7 - (cells.length % 7)
+  if (remaining < 7) for (let i = 1; i <= remaining; i++) cells.push({ day: i, inMonth: false, isToday: false })
+
+  const displayText = validParsed ? formatDateTime(value) : '未设置'
+
+  return (
+    <div className="dtp-field">
+      <span className="dtp-label">{label}</span>
+      <button type="button" className={`dtp-trigger ${validParsed ? 'has-value' : ''}`} onClick={() => setOpen(!open)}>
+        {displayText}
+      </button>
+      {open && (
+        <div className="dtp-popover" onClick={e => e.stopPropagation()}>
+          <div className="dtp-header">
+            <span className="dtp-title">{label}</span>
+            <button type="button" className="dtp-close" onClick={() => setOpen(false)}>×</button>
+          </div>
+          <div className="dtp-shortcuts">
+            <button type="button" className="dtp-chip" onClick={() => handleShortcutDate(0)}>今天</button>
+            <button type="button" className="dtp-chip" onClick={() => handleShortcutDate(1)}>明天</button>
+            <button type="button" className="dtp-chip" onClick={() => handleShortcutDate(7)}>下周一</button>
+          </div>
+          <div className="dtp-cal-nav">
+            <button type="button" onClick={prevMonth}>‹</button>
+            <span>{viewYear} 年 {viewMonth + 1} 月</span>
+            <button type="button" onClick={nextMonth}>›</button>
+          </div>
+          <div className="dtp-weekdays">
+            {['日', '一', '二', '三', '四', '五', '六'].map(w => <span key={w}>{w}</span>)}
+          </div>
+          <div className="dtp-days">
+            {cells.map((c, i) => (
+              <button
+                type="button"
+                key={i}
+                className={`dtp-day ${!c.inMonth ? 'other' : ''} ${c.isToday ? 'today' : ''} ${c.inMonth && c.day === selDay ? 'selected' : ''}`}
+                onClick={() => c.inMonth && setSelDay(c.day)}
+              >
+                {c.day}
+              </button>
+            ))}
+          </div>
+          <div className="dtp-divider" />
+          <div className="dtp-time-section">
+            <div className="dtp-time-row">
+              <span className="dtp-time-label">时间</span>
+              <div className="dtp-time-inputs">
+                <input type="number" min={0} max={23} value={pad2(selHour)} onChange={e => setSelHour(Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))} />
+                <span>:</span>
+                <input type="number" min={0} max={59} value={pad2(selMinute)} onChange={e => setSelMinute(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))} />
+              </div>
+            </div>
+            <div className="dtp-time-chips">
+              {[['9:00', 9, 0], ['14:00', 14, 0], ['18:00', 18, 0], ['23:59', 23, 59]].map(([label, h, m]) => (
+                <button type="button" key={label as string} className="dtp-chip small" onClick={() => { setSelHour(h as number); setSelMinute(m as number) }}>{label as string}</button>
+              ))}
+            </div>
+          </div>
+          <div className="dtp-divider" />
+          <div className="dtp-actions">
+            <button type="button" className="dtp-clear" onClick={handleClear}>清除</button>
+            <button type="button" className="dtp-confirm" onClick={handleConfirm}>确认</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TodoWindow() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [projects, setProjects] = useState<Project[]>([DEFAULT_PROJECT])
@@ -442,6 +544,8 @@ export function TodoWindow() {
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null)
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectParentId, setNewProjectParentId] = useState<string | null>(null)
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
   const [editingProjectName, setEditingProjectName] = useState('')
   const [projectMenuId, setProjectMenuId] = useState<string | null>(null)
@@ -529,7 +633,7 @@ export function TodoWindow() {
         if (result && 'text' in result && result.text) {
           setQuickInput(result.text)
         } else if (result && 'error' in result) {
-          setValidationHint(`语音识别失败: ${result.error}`)
+          setValidationHint(result.error)
           setTimeout(() => setValidationHint(''), 3000)
         }
       }
@@ -559,26 +663,6 @@ export function TodoWindow() {
 
   const selectedTodo = todos.find(t => t.id === selectedTodoId) || null
 
-  const filteredTodos = useMemo(() => {
-    let result = todos.map(normalizeTodo)
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase()
-      result = result.filter(t => t.title.toLowerCase().includes(q) || (t.note || '').toLowerCase().includes(q))
-    }
-    if (selectedProjectId) result = result.filter(t => t.projectId === selectedProjectId)
-    if (smartView === 'all') result = result.filter(t => !t.done)
-    else if (smartView === 'today') result = result.filter(t => !t.done && (isSameDay(t.dueDate) || t.status === 'in_progress'))
-    else if (smartView === 'upcoming') result = result.filter(t => !t.done && isUpcoming(t.dueDate))
-    else if (smartView === 'inbox') result = result.filter(t => t.projectId === 'inbox')
-    else if (smartView === 'repeat') result = result.filter(t => t.repeatRule && t.repeatRule !== 'none')
-    return result.sort((a, b) => {
-      const rank = { high: 0, medium: 1, low: 2 }
-      const priorityDiff = rank[a.priority || 'medium'] - rank[b.priority || 'medium']
-      if (priorityDiff !== 0) return priorityDiff
-      return new Date(a.dueDate || '9999-12-31').getTime() - new Date(b.dueDate || '9999-12-31').getTime()
-    })
-  }, [todos, selectedProjectId, smartView, viewMode, searchQuery])
-
   const activeCount = todos.filter(t => !t.done).length
   const highCount = todos.filter(t => !t.done && t.priority === 'high').length
   const overdueCount = todos.filter(t => !t.done && t.dueDate && new Date(t.dueDate).getTime() < Date.now()).length
@@ -586,24 +670,134 @@ export function TodoWindow() {
   const getProjectName = (id?: string) => projectList.find(p => p.id === id)?.name || '收集箱'
   const getProjectColor = (id?: string) => projectList.find(p => p.id === id)?.color || DEFAULT_PROJECT.color
 
-  const createNextRepeat = async (todo: Todo) => {
-    if (!todo.repeatRule || todo.repeatRule === 'none') return
-    const nextDue = computeNextDueDate(todo.dueDate, todo.repeatRule)
-    const nextReminder = computeNextDueDate(todo.reminderAt, todo.repeatRule)
-    const nextTodo: Todo = {
-      ...todo,
-      id: generateId(),
-      done: false,
-      status: 'backlog',
-      notified: false,
-      completedAt: undefined,
-      createdAt: Date.now(),
-      dueDate: nextDue,
-      reminderAt: nextReminder,
-      subtasks: (todo.subtasks || []).map(s => ({ ...s, done: false })),
+  const getDescendantProjectIds = useCallback((parentId: string): string[] => {
+    const children = projectList.filter(p => p.parentId === parentId)
+    const ids: string[] = []
+    for (const child of children) {
+      ids.push(child.id)
+      ids.push(...getDescendantProjectIds(child.id))
     }
-    await saveTodoSilent(nextTodo)
-    showToast(`已创建下一轮：${todo.title} — 截止 ${nextDue ? formatDateTime(nextDue) : '未设'}`)
+    return ids
+  }, [projectList])
+
+  const getProjectAndDescendantIds = useCallback((id: string): string[] => {
+    return [id, ...getDescendantProjectIds(id)]
+  }, [getDescendantProjectIds])
+
+  const filteredTodos = useMemo(() => {
+    let result = todos.map(normalizeTodo)
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      result = result.filter(t => t.title.toLowerCase().includes(q) || (t.note || '').toLowerCase().includes(q))
+    }
+    if (selectedProjectId) {
+      const matchIds = new Set(getProjectAndDescendantIds(selectedProjectId))
+      result = result.filter(t => matchIds.has(t.projectId))
+    }
+    if (smartView === 'all') result = result.filter(t => !t.done)
+    else if (smartView === 'today') result = result.filter(t => !t.done && (isSameDay(t.dueDate) || t.status === 'in_progress'))
+    else if (smartView === 'upcoming') result = result.filter(t => !t.done && isUpcoming(t.dueDate))
+    else if (smartView === 'inbox') result = result.filter(t => t.projectId === 'inbox')
+
+    return result.sort((a, b) => {
+      const rank = { high: 0, medium: 1, low: 2 }
+      const priorityDiff = rank[a.priority || 'medium'] - rank[b.priority || 'medium']
+      if (priorityDiff !== 0) return priorityDiff
+      return new Date(a.dueDate || '9999-12-31').getTime() - new Date(b.dueDate || '9999-12-31').getTime()
+    })
+  }, [todos, selectedProjectId, smartView, viewMode, searchQuery, getProjectAndDescendantIds])
+
+  const topLevelProjects = useMemo(() =>
+    projectList.filter(p => p.id !== 'inbox' && !p.parentId),
+    [projectList]
+  )
+
+  const getChildProjects = useCallback((parentId: string) =>
+    projectList.filter(p => p.parentId === parentId),
+    [projectList]
+  )
+
+  const toggleProjectCollapse = (id: string) => {
+    setCollapsedProjects(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const projectTodoCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    const activeTodos = todos.filter(t => !t.done)
+    for (const p of projectList) {
+      const ids = new Set(getProjectAndDescendantIds(p.id))
+      counts[p.id] = activeTodos.filter(t => ids.has(t.projectId)).length
+    }
+    return counts
+  }, [todos, projectList, getProjectAndDescendantIds])
+
+  const renderProjectTree = (projectItems: Project[], depth: number): React.ReactNode => {
+    return projectItems.map(project => {
+      const children = getChildProjects(project.id)
+      const hasChildren = children.length > 0
+      const isCollapsed = collapsedProjects.has(project.id)
+      return (
+        <div key={project.id} className="todo-project-item">
+          <button
+            className={selectedProjectId === project.id ? 'active' : ''}
+            style={{ paddingLeft: `${8 + depth * 16}px` }}
+            onClick={() => {
+              if (selectedProjectId === project.id) { setSelectedProjectId(null); setSmartView('today') }
+              else { setSelectedProjectId(project.id); setSmartView(null) }
+              setProjectMenuId(null)
+            }}
+          >
+            {hasChildren && (
+              <span
+                className={`todo-project-toggle ${isCollapsed ? 'collapsed' : ''}`}
+                onClick={e => { e.stopPropagation(); toggleProjectCollapse(project.id) }}
+              >▸</span>
+            )}
+            <i style={{ background: project.color }} />
+            {editingProjectId === project.id ? (
+              <input
+                className="todo-project-rename"
+                value={editingProjectName}
+                onChange={e => setEditingProjectName(e.target.value)}
+                onBlur={() => handleRenameProject(project.id, editingProjectName)}
+                onKeyDown={e => { if (e.key === 'Enter') handleRenameProject(project.id, editingProjectName); if (e.key === 'Escape') setEditingProjectId(null) }}
+                onClick={e => e.stopPropagation()}
+                autoFocus
+              />
+            ) : project.name}
+            <b>{projectTodoCounts[project.id] || 0}</b>
+          </button>
+          <span className="todo-project-more" onClick={e => { e.stopPropagation(); setProjectMenuId(projectMenuId === project.id ? null : project.id) }}>⋯</span>
+          {projectMenuId === project.id && (
+            <div className="todo-project-menu">
+              <div className="todo-color-picker">
+                {PROJECT_COLORS.map(c => (
+                  <span
+                    key={c}
+                    className={`color-dot ${project.color === c ? 'active' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => handleChangeProjectColor(project.id, c)}
+                  />
+                ))}
+              </div>
+              <button onClick={() => { setNewProjectParentId(project.id); setShowProjectForm(true); setProjectMenuId(null) }}>新建子项目</button>
+              <button onClick={() => { setEditingProjectId(project.id); setEditingProjectName(project.name); setProjectMenuId(null) }}>重命名</button>
+              <button onClick={() => { handleDeleteProject(project.id); setProjectMenuId(null) }}>删除</button>
+            </div>
+          )}
+          {hasChildren && !isCollapsed && (
+            <div className="todo-project-children">
+              {renderProjectTree(children, depth + 1)}
+            </div>
+          )}
+        </div>
+      )
+    })
   }
 
   const saveTodo = async (todo: Todo) => {
@@ -626,10 +820,6 @@ export function TodoWindow() {
     }
     setSelectedTodoId(normalized.id)
     if (!usingPreviewStore) loadData()
-
-    if (normalized.done && oldTodo && !oldTodo.done) {
-      await createNextRepeat(normalized)
-    }
   }
 
   const saveTodoSilent = async (todo: Todo) => {
@@ -657,10 +847,6 @@ export function TodoWindow() {
     if (parsed.dueDate) previewTags.push(`📅 ${formatDateTime(parsed.dueDate)}`)
     if (parsed.priority && parsed.priority !== 'medium') previewTags.push(parsed.priority === 'high' ? '🔴 高优先级' : '🔵 低优先级')
     if (parsed.projectId) previewTags.push(`📂 ${parsed.projectId}`)
-    if (parsed.repeatRule && parsed.repeatRule !== 'none') {
-      const labels: Record<string, string> = { daily: '每天', weekly: '每周', monthly: '每月' }
-      previewTags.push(`🔁 ${labels[parsed.repeatRule] || parsed.repeatRule}`)
-    }
     if (parsed.tags?.length) parsed.tags.forEach(t => previewTags.push(`🏷️ ${t}`))
     return previewTags.length > 0 ? { title: parsed.cleanTitle, tags: previewTags } : null
   }, [quickInput])
@@ -679,7 +865,6 @@ export function TodoWindow() {
       priority: parsed.priority,
       dueDate: parsed.dueDate,
       reminderAt: parsed.reminderAt,
-      repeatRule: parsed.repeatRule,
       tags: parsed.tags,
     }
     await saveTodo(todo)
@@ -715,12 +900,14 @@ export function TodoWindow() {
     })
   }
 
-  const handleAddProject = async () => {
+  const handleAddProject = async (parentId?: string | null) => {
     if (!newProjectName.trim()) return
+    const parentColor = parentId ? getProjectColor(parentId) : undefined
     const project: Project = {
       id: generateId(),
       name: newProjectName.trim(),
-      color: PROJECT_COLORS[projects.length % PROJECT_COLORS.length],
+      color: parentColor || PROJECT_COLORS[projects.length % PROJECT_COLORS.length],
+      parentId: parentId || undefined,
       createdAt: Date.now(),
     }
     if (usingPreviewStore) {
@@ -731,6 +918,7 @@ export function TodoWindow() {
       await window.electronAPI?.saveProject(project)
     }
     setNewProjectName('')
+    setNewProjectParentId(null)
     setShowProjectForm(false)
     if (!usingPreviewStore) loadData()
   }
@@ -768,9 +956,19 @@ export function TodoWindow() {
   const handleDeleteProject = async (id: string) => {
     if (id === 'inbox') return
     const count = todos.filter(t => t.projectId === id).length
-    if (!window.confirm(`删除此项目？${count > 0 ? `其中 ${count} 个任务将移到收集箱。` : ''}`)) return
+    const childCount = getChildProjects(id).length
+    const msg = [
+      '删除此项目？',
+      count > 0 ? `其中 ${count} 个任务将移到收集箱。` : '',
+      childCount > 0 ? `${childCount} 个子项目将提升到上一级。` : '',
+    ].filter(Boolean).join('')
+    if (!window.confirm(msg)) return
     if (usingPreviewStore) {
-      const nextProjects = projectList.filter(p => p.id !== id)
+      const deletedProject = projectList.find(p => p.id === id)
+      const parentOfDeleted = deletedProject?.parentId || undefined
+      const nextProjects = projectList
+        .filter(p => p.id !== id)
+        .map(p => p.parentId === id ? { ...p, parentId: parentOfDeleted } : p)
       const nextTodos = todos.map(t => t.projectId === id ? { ...t, projectId: 'inbox' } : t)
       window.localStorage.setItem('termipet-preview-projects', JSON.stringify(nextProjects))
       window.localStorage.setItem('termipet-preview-todos', JSON.stringify(nextTodos))
@@ -883,7 +1081,7 @@ export function TodoWindow() {
     if (!todo) return
     const d = new Date(date)
     d.setHours(hour, 0, 0, 0)
-    await saveTodo({ ...todo, dueDate: d.toISOString() })
+    await saveTodo({ ...todo, dueDate: toStorageDateTime(d) })
     setCalendarScheduling(null)
   }
 
@@ -958,9 +1156,9 @@ export function TodoWindow() {
         {done.map(t => renderTaskCard(t, true))}
         {filteredTodos.length === 0 && (
           <div className="todo-empty-state">
-            <div className="empty-icon">{smartView === 'today' ? '☀️' : smartView === 'upcoming' ? '📅' : smartView === 'inbox' ? '📥' : smartView === 'repeat' ? '🔁' : selectedProjectId ? '📂' : '✅'}</div>
-            <strong>{smartView === 'today' ? '今天没有待办任务' : smartView === 'upcoming' ? '未来 7 天暂无安排' : smartView === 'inbox' ? '收集箱是空的' : smartView === 'repeat' ? '还没有重复任务' : selectedProjectId ? `「${getProjectName(selectedProjectId)}」暂无任务` : '全部任务已完成'}</strong>
-            <span>{smartView === 'inbox' ? '快速添加的任务会先进入收集箱，稍后整理到项目中' : smartView === 'repeat' ? '创建任务时设置重复规则，自动循环提醒' : '用上方输入框添加一个新任务吧'}</span>
+            <div className="empty-icon">{smartView === 'today' ? '☀️' : smartView === 'upcoming' ? '📅' : smartView === 'inbox' ? '📥' : selectedProjectId ? '📂' : '✅'}</div>
+            <strong>{smartView === 'today' ? '今天没有待办任务' : smartView === 'upcoming' ? '未来 7 天暂无安排' : smartView === 'inbox' ? '收集箱是空的' : selectedProjectId ? `「${getProjectName(selectedProjectId)}」暂无任务` : '全部任务已完成'}</strong>
+            <span>{smartView === 'inbox' ? '快速添加的任务会先进入收集箱，稍后整理到项目中' : '用上方输入框添加一个新任务吧'}</span>
           </div>
         )}
       </div>
@@ -1093,7 +1291,7 @@ export function TodoWindow() {
           {searchQuery && <button onClick={() => setSearchQuery('')}>×</button>}
           {searchQuery && (
             <span className="todo-search-scope">
-              搜索范围：{selectedProjectId ? getProjectName(selectedProjectId) : smartView === 'today' ? '今天' : smartView === 'upcoming' ? '未来7天' : smartView === 'inbox' ? '收集箱' : smartView === 'repeat' ? '重复任务' : '全部未完成'}
+              搜索范围：{selectedProjectId ? getProjectName(selectedProjectId) : smartView === 'today' ? '今天' : smartView === 'upcoming' ? '未来7天' : smartView === 'inbox' ? '收集箱' : '全部未完成'}
             </span>
           )}
         </div>
@@ -1103,7 +1301,7 @@ export function TodoWindow() {
           <button className={smartView === 'today' ? 'active' : ''} onClick={() => { setSmartView('today'); setSelectedProjectId(null) }}>今天</button>
           <button className={smartView === 'upcoming' ? 'active' : ''} onClick={() => { setSmartView('upcoming'); setSelectedProjectId(null) }}>未来 7 天</button>
           <button className={smartView === 'inbox' ? 'active' : ''} onClick={() => { setSmartView('inbox'); setSelectedProjectId(null) }}>收集箱</button>
-          <button className={smartView === 'repeat' ? 'active' : ''} onClick={() => { setSmartView('repeat'); setSelectedProjectId(null) }}>重复任务</button>
+
         </div>
 
         <div className="todo-work-stats">
@@ -1114,58 +1312,23 @@ export function TodoWindow() {
 
         <div className="todo-projects-head">
           <span>项目</span>
-          <button onClick={() => setShowProjectForm(true)}>+</button>
+          <button onClick={() => { setNewProjectParentId(null); setShowProjectForm(true) }}>+</button>
         </div>
         <div className="todo-project-nav">
-          {projectList.filter(p => p.id !== 'inbox').map(project => (
-            <div key={project.id} className="todo-project-item">
-              <button
-                className={selectedProjectId === project.id ? 'active' : ''}
-                onClick={() => {
-                  if (selectedProjectId === project.id) { setSelectedProjectId(null); setSmartView('today') }
-                  else { setSelectedProjectId(project.id); setSmartView(null) }
-                  setProjectMenuId(null)
-                }}
-              >
-                <i style={{ background: project.color }} />
-                {editingProjectId === project.id ? (
-                  <input
-                    className="todo-project-rename"
-                    value={editingProjectName}
-                    onChange={e => setEditingProjectName(e.target.value)}
-                    onBlur={() => handleRenameProject(project.id, editingProjectName)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleRenameProject(project.id, editingProjectName); if (e.key === 'Escape') setEditingProjectId(null) }}
-                    onClick={e => e.stopPropagation()}
-                    autoFocus
-                  />
-                ) : project.name}
-                <b>{todos.filter(t => t.projectId === project.id && !t.done).length}</b>
-              </button>
-              <span className="todo-project-more" onClick={e => { e.stopPropagation(); setProjectMenuId(projectMenuId === project.id ? null : project.id) }}>⋯</span>
-              {projectMenuId === project.id && (
-                <div className="todo-project-menu">
-                  <div className="todo-color-picker">
-                    {PROJECT_COLORS.map(c => (
-                      <span
-                        key={c}
-                        className={`color-dot ${project.color === c ? 'active' : ''}`}
-                        style={{ background: c }}
-                        onClick={() => handleChangeProjectColor(project.id, c)}
-                      />
-                    ))}
-                  </div>
-                  <button onClick={() => { setEditingProjectId(project.id); setEditingProjectName(project.name); setProjectMenuId(null) }}>重命名</button>
-                  <button onClick={() => { handleDeleteProject(project.id); setProjectMenuId(null) }}>删除</button>
-                </div>
-              )}
-            </div>
-          ))}
+          {renderProjectTree(topLevelProjects, 0)}
         </div>
 
         {showProjectForm && (
           <div className="todo-project-form">
-            <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)} placeholder="项目名称" autoFocus />
-            <button onClick={handleAddProject}>添加</button>
+            {newProjectParentId && <span className="todo-project-form-parent">父项目：{getProjectName(newProjectParentId)}</span>}
+            <input
+              value={newProjectName}
+              onChange={e => setNewProjectName(e.target.value)}
+              placeholder={newProjectParentId ? '子项目名称' : '项目名称'}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddProject(newProjectParentId); if (e.key === 'Escape') { setShowProjectForm(false); setNewProjectParentId(null) } }}
+              autoFocus
+            />
+            <button onClick={() => handleAddProject(newProjectParentId)}>添加</button>
           </div>
         )}
       </aside>
@@ -1209,7 +1372,7 @@ export function TodoWindow() {
 
         <div className="todo-work-header">
           <div>
-            <h2>{viewMode === 'board' ? '看板视图' : viewMode === 'calendar' ? '日历视图' : selectedProjectId ? getProjectName(selectedProjectId) : smartView === 'all' ? '全部任务' : smartView === 'upcoming' ? '未来 7 天' : smartView === 'inbox' ? '收集箱' : smartView === 'repeat' ? '重复任务' : '今天任务'}</h2>
+            <h2>{viewMode === 'board' ? '看板视图' : viewMode === 'calendar' ? '日历视图' : selectedProjectId ? getProjectName(selectedProjectId) : smartView === 'all' ? '全部任务' : smartView === 'upcoming' ? '未来 7 天' : smartView === 'inbox' ? '收集箱' : '今天任务'}</h2>
             <p>AI 会根据截止时间、优先级和项目状态辅助你安排顺序。</p>
           </div>
           <div className="todo-view-switch">
@@ -1246,13 +1409,21 @@ export function TodoWindow() {
               <div><span>截止</span><b>{formatDateTime(selectedTodo.dueDate)}</b></div>
               <div><span>项目</span><b>{getProjectName(selectedTodo.projectId)}</b></div>
               <div><span>提醒</span><b>{selectedTodo.reminderAt ? formatDateTime(selectedTodo.reminderAt) : '未设置'}</b></div>
-              <div><span>重复</span><b>{repeatLabel(selectedTodo.repeatRule)}</b></div>
             </details>
             <details className="todo-subtasks-preview" open>
               <summary>子任务</summary>
-              {(selectedTodo.subtasks || []).length ? selectedTodo.subtasks?.map(item => (
+              {(selectedTodo.subtasks || []).map(item => (
                 <label key={item.id}><input type="checkbox" checked={item.done} onChange={() => handleToggleDetailSubtask(item.id)} /> {item.title}</label>
-              )) : <button onClick={() => handleAiDecompose(selectedTodo, false)}>快速拆解</button>}
+              ))}
+              <div className="todo-subtask-add-row">
+                <button onClick={async () => {
+                  const newSub = { id: generateId(), title: '新子任务', done: false }
+                  await saveTodoSilent({ ...selectedTodo, subtasks: [...(selectedTodo.subtasks || []), newSub] })
+                }}>+ 添加子任务</button>
+                {!(selectedTodo.subtasks || []).length && (
+                  <button onClick={() => handleAiDecompose(selectedTodo, false)}>模板拆解</button>
+                )}
+              </div>
             </details>
             <div className="todo-detail-actions">
               <button onClick={() => handleToggleDone(selectedTodo)}>{selectedTodo.done ? '取消完成' : '标记完成'}</button>
@@ -1265,7 +1436,7 @@ export function TodoWindow() {
       </aside>
 
       {editingTodo && (
-        <div className="todo-form-overlay" onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { saveTodo(editingTodo); _setEditingTodo(null) } }}>
+        <div className="todo-form-overlay" onKeyDown={async e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { await saveTodo(editingTodo); _setEditingTodo(null) } }}>
           <div className="todo-form-modal">
             <div className="todo-form-head">
               <h3>{todos.some(t => t.id === editingTodo.id) ? '编辑任务' : '添加任务'}</h3>
@@ -1280,14 +1451,8 @@ export function TodoWindow() {
               <textarea value={editingTodo.note || ''} onChange={e => { _setEditingTodo({ ...editingTodo, note: e.target.value }); markDirty() }} rows={3} />
             </label>
             <div className="todo-form-grid">
-              <label>
-                截止时间
-                <input type="datetime-local" value={toLocalInputValue(editingTodo.dueDate)} onChange={e => { _setEditingTodo({ ...editingTodo, dueDate: e.target.value ? new Date(e.target.value).toISOString() : undefined, notified: false }); markDirty() }} />
-              </label>
-              <label>
-                提醒时间
-                <input type="datetime-local" value={toLocalInputValue(editingTodo.reminderAt)} onChange={e => { _setEditingTodo({ ...editingTodo, reminderAt: e.target.value ? new Date(e.target.value).toISOString() : undefined, notified: false }); markDirty() }} />
-              </label>
+              <DateTimePicker label="截止时间" value={editingTodo.dueDate} onChange={v => { _setEditingTodo({ ...editingTodo, dueDate: v, notified: false }); markDirty() }} />
+              <DateTimePicker label="提醒时间" value={editingTodo.reminderAt} onChange={v => { _setEditingTodo({ ...editingTodo, reminderAt: v, notified: false }); markDirty() }} />
               <label>
                 项目
                 <select value={editingTodo.projectId} onChange={e => { _setEditingTodo({ ...editingTodo, projectId: e.target.value }); markDirty() }}>
@@ -1306,15 +1471,6 @@ export function TodoWindow() {
                 状态
                 <select value={editingTodo.status || 'backlog'} onChange={e => { _setEditingTodo({ ...editingTodo, status: e.target.value as Todo['status'] }); markDirty() }}>
                   {BOARD_COLUMNS.map(column => <option key={column.id} value={column.id}>{column.title}</option>)}
-                </select>
-              </label>
-              <label>
-                重复规则
-                <select value={editingTodo.repeatRule || 'none'} onChange={e => { _setEditingTodo({ ...editingTodo, repeatRule: e.target.value as Todo['repeatRule'] }); markDirty() }}>
-                  <option value="none">不重复</option>
-                  <option value="daily">每天</option>
-                  <option value="weekly">每周</option>
-                  <option value="monthly">每月</option>
                 </select>
               </label>
               <label>
@@ -1362,7 +1518,7 @@ export function TodoWindow() {
             </div>
             <div className="todo-form-actions">
               <button onClick={closeEditor}>取消</button>
-              <button onClick={() => { saveTodo(editingTodo); _setEditingTodo(null) }}>保存任务</button>
+              <button onClick={async () => { await saveTodo(editingTodo); _setEditingTodo(null) }}>保存任务</button>
             </div>
           </div>
         </div>
